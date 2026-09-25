@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 2px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: #e8622c;
+  color: #0a0b0d;
+}
+
+.grid-bg {
+  background-image: linear-gradient(#26282c 1px, transparent 1px),
+    linear-gradient(90deg, #26282c 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.35;
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+
+.chip {
+  @apply px-4 py-2 text-[13px] rounded border border-border text-text-dim bg-bg transition-colors;
+}
+.chip.active {
+  @apply border-accent text-accent bg-accent-dim;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded border border-border px-4 py-2.5 text-[13px] font-semibold tracking-wide whitespace-nowrap transition-colors;
+}
+.btn-primary {
+  @apply bg-accent text-bg border-accent hover:opacity-90;
+}
+.btn-ghost {
+  @apply text-text-dim hover:text-text;
+}
