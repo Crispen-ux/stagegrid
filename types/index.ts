@@ -129,6 +129,7 @@ export interface Quote {
   recommendedPackage: RecommendedPackage;
   status: "draft" | "sent" | "approved" | "expired";
   createdAt: string;
+  clientEmail?: string;
 }
 
 export interface Booking {
@@ -139,6 +140,7 @@ export interface Booking {
   deliveryWindow: string;
   crew: CrewMember[];
   assets: Asset[];
+  clientEmail?: string;
 }
 
 export interface Invoice {
@@ -148,6 +150,7 @@ export interface Invoice {
   amount: number;
   status: "draft" | "sent" | "paid" | "overdue";
   dueDate: string;
+  clientEmail?: string;
 }
 
 export interface StageEvent {
@@ -158,4 +161,71 @@ export interface StageEvent {
   region: string;
   infrastructure: string[];
   outcome: string;
+}
+
+/** Whoever is signed into the portal — a STAGEGRID admin or one client account. */
+export interface PortalViewer {
+  id: string;
+  name: string;
+  email: string;
+  company?: string | null;
+  role: "admin" | "client";
+}
+
+/** Rows shown in the portal Requests tab — one shape regardless of which table they came from. */
+export interface PortalContactMessage {
+  id: string;
+  name: string;
+  company?: string | null;
+  email: string;
+  phone?: string | null;
+  message: string;
+  handled: boolean;
+  created: string;
+}
+
+export interface PortalQuoteRequest {
+  id: string;
+  reference: string;
+  eventType: string;
+  guestCount: number;
+  eventDate?: string | null;
+  venue?: string | null;
+  name: string;
+  email: string;
+  notes?: string | null;
+  status: string;
+  created: string;
+}
+
+export interface PortalBuilderQuote {
+  id: string;
+  reference: string;
+  estimateTotal: number;
+  status: string;
+  created: string;
+}
+
+export interface PortalBuilderConfig {
+  id: string;
+  reference: string;
+  label?: string | null;
+  created: string;
+  updated: string;
+}
+
+export interface PortalAccountRequest {
+  id: string;
+  name: string;
+  company?: string | null;
+  email: string;
+  created: string;
+}
+
+export interface PortalRequests {
+  contactMessages: PortalContactMessage[];
+  quoteRequests: PortalQuoteRequest[];
+  builderQuotes: PortalBuilderQuote[];
+  builderConfigs: PortalBuilderConfig[];
+  accountRequests: PortalAccountRequest[];
 }

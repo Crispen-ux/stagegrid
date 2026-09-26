@@ -1,5 +1,6 @@
 import { parseConfiguration } from "@/lib/config-validation";
 import type { Prisma } from "@/lib/generated/prisma/client";
+import { sessionFromRequest } from "@/lib/portal-auth";
 import {
   asOptionalString,
   badRequest,
@@ -26,7 +27,12 @@ export async function POST(request: Request): Promise<Response> {
   const result = await write("api/builder-configs", (db) =>
     createUniqueReference("SG-C", (reference) =>
       db.builderConfig.create({
-        data: { reference, label, configuration: config as unknown as Prisma.InputJsonValue },
+        data: {
+          reference,
+          label,
+          configuration: config as unknown as Prisma.InputJsonValue,
+          clientId: sessionFromRequest(request)?.clientId ?? null,
+        },
       })
     )
   );

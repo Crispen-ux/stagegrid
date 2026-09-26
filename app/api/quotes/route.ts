@@ -1,3 +1,4 @@
+import { sessionFromRequest } from "@/lib/portal-auth";
 import {
   EMAIL_PATTERN,
   asNumber,
@@ -75,7 +76,9 @@ export async function POST(request: Request): Promise<Response> {
 
   const result = await write("api/quotes", (db) =>
     createUniqueReference("SG-Q", (reference) =>
-      db.quoteRequest.create({ data: { ...value, reference } })
+      db.quoteRequest.create({
+        data: { ...value, reference, clientId: sessionFromRequest(request)?.clientId ?? null },
+      })
     )
   );
 

@@ -2,6 +2,7 @@ import { equipment } from "@/data/equipment";
 import { calculateRecommendedPackage } from "@/lib/calculations";
 import { parseConfiguration } from "@/lib/config-validation";
 import type { Prisma } from "@/lib/generated/prisma/client";
+import { sessionFromRequest } from "@/lib/portal-auth";
 import {
   asNumber,
   badRequest,
@@ -88,6 +89,7 @@ export async function POST(request: Request): Promise<Response> {
           },
           basket: lines as unknown as Prisma.InputJsonValue,
           estimateTotal,
+          clientId: sessionFromRequest(request)?.clientId ?? null,
         },
       })
     )

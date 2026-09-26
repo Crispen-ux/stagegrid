@@ -1,0 +1,137 @@
+﻿import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { PortalShell } from "@/components/dashboard/PortalShell";
+import { RequestsTab } from "@/components/dashboard/RequestsTab";
+import { OverviewTab } from "@/components/dashboard/OverviewTab";
+import { ACME_EMAIL, NORTHWIND_EMAIL } from "@/data/portal";
+import type { PortalRequests, PortalViewer } from "@/types";
+
+const requests: PortalRequests = {
+  contactMessages: [
+    {
+      id: "1",
+      name: "Thandi",
+      company: "Events Co",
+      email: "thandi@example.com",
+      phone: "082 000 0000",
+      message: "Hello there",
+      handled: false,
+      created: "2026-09-26T09:00:00.000Z",
+    },
+  ],
+  quoteRequests: [
+    {
+      id: "2",
+      reference: "SG-Q-TESTREF1",
+      eventType: "corporate",
+      guestCount: 250,
+      eventDate: null,
+      venue: "Sandton",
+      name: "Kim Naidoo",
+      email: ACME_EMAIL,
+      notes: null,
+      status: "new",
+      created: "2026-09-26T09:05:00.000Z",
+    },
+  ],
+  builderQuotes: [
+    { id: "3", reference: "SG-BQ-TESTREF", estimateTotal: 78950, status: "new", created: "2026-09-26T09:10:00.000Z" },
+  ],
+  builderConfigs: [
+    {
+      id: "4",
+      reference: "SG-C-TESTREF",
+      label: "prod",
+      created: "2026-09-26T09:11:00.000Z",
+      updated: "2026-09-26T09:12:00.000Z",
+    },
+  ],
+  accountRequests: [
+    { id: "5", name: "Test Person", company: "Demo Traders", email: "pending@demo.co.za", created: "2026-09-26T09:09:00.000Z" },
+  ],
+};
+
+const admin: PortalViewer = { id: "cl_admin", name: "STAGEGRID Ops", email: "ops@stagegrid.co.za", role: "admin" };
+const acme: PortalViewer = { id: "cl_acme", name: "Kim Naidoo", email: ACME_EMAIL, company: "Acme Corp", role: "client" };
+const northwind: PortalViewer = { id: "cl_nw", name: "Sana Patel", email: NORTHWIND_EMAIL, company: "Northwind Media", role: "client" };
+
+const checks: { label: string; html: string; contains?: string[]; excludes?: string[] }[] = [
+  {
+    label: "RequestsTab (admin)",
+    html: renderToStaticMarkup(<RequestsTab viewer={admin} requests={requests} />),
+    contains: [
+      "Portal access requests",
+      "pending@demo.co.za",
+      "Activate",
+      "Quote requests",
+      "SG-Q-TESTREF1",
+      "Builder quotes",
+      "SG-BQ-TESTREF",
+      "Saved builder configurations",
+      "Contact messages",
+      "Hello there",
+      "R78",
+    ],
+    excludes: [],
+  },
+  {
+    label: "RequestsTab (client)",
+    html: renderToStaticMarkup(<RequestsTab viewer={acme} requests={requests} />),
+    contains: ["Your requests", "Quote requests"],
+    excludes: ["Portal access requests", "pending@demo.co.za", "Activate"],
+  },
+  {
+    label: "PortalShell (admin)",
+    html: renderToStaticMarkup(<PortalShell viewer={admin} requests={requests} />),
+    contains: [
+      ">Overview<",
+      ">Equipment<",
+      ">Crew<",
+      ">Assets<",
+      ">STAGEGRID OS<",
+      ">Requests<",
+      "STAGEGRID admin",
+    ],
+  },
+  {
+    label: "PortalShell (client)",
+    html: renderToStaticMarkup(<PortalShell viewer={acme} requests={requests} />),
+    contains: [">Overview<", ">My Events<", ">Quotes &amp; Invoices<", ">Logistics<", ">My Requests<", "Acme Corp"],
+    excludes: [">Equipment<", ">Crew<", ">Assets<", ">STAGEGRID OS<"],
+  },
+  {
+    label: "OverviewTab (acme)",
+    html: renderToStaticMarkup(<OverviewTab viewer={acme} />),
+    contains: ["Corporate Product Launch", "Outdoor Brand Activation", "Upcoming Events"],
+    excludes: ["Corporate Conference", "Asset Utilisation"],
+  },
+  {
+    label: "OverviewTab (northwind)",
+    html: renderToStaticMarkup(<OverviewTab viewer={northwind} />),
+    contains: ["Corporate Conference", "Quotes", "Overdue Invoices"],
+    excludes: ["Corporate Product Launch", "Asset Utilisation"],
+  },
+  {
+    label: "OverviewTab (admin)",
+    html: renderToStaticMarkup(<OverviewTab viewer={admin} />),
+    contains: ["Corporate Product Launch", "Corporate Conference", "Asset Utilisation"],
+  },
+];
+
+let failures = 0;
+for (const check of checks) {
+  const missing = (check.contains ?? []).filter((needle) => !check.html.includes(needle));
+  const leaked = (check.excludes ?? []).filter((needle) => check.html.includes(needle));
+  if (missing.length === 0 && leaked.length === 0) {
+    console.log(`  PASS  ${check.label} (${check.html.length} bytes)`);
+  } else {
+    failures += 1;
+    console.log(`  FAIL  ${check.label}`);
+    for (const needle of missing) console.log(`        missing: ${needle}`);
+    for (const needle of leaked) console.log(`        should not appear: ${needle}`);
+  }
+}
+console.log(failures === 0 ? "\nAll render checks passed." : `\n${failures} render check(s) failed.`);
+process.exit(failures === 0 ? 0 : 1);
+
+

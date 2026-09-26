@@ -1,4 +1,4 @@
-import type { Booking, Quote, Invoice, CrewMember, Vehicle, Asset, AssetStatus } from "@/types";
+import type { Booking, Quote, Invoice, CrewMember, Vehicle, Asset, AssetStatus, PortalViewer } from "@/types";
 import { defaultConfiguration, calculateRecommendedPackage } from "@/lib/calculations";
 
 export const crew: CrewMember[] = [
@@ -19,6 +19,9 @@ export const vehicles: Vehicle[] = [
 
 const samplePackage = calculateRecommendedPackage(defaultConfiguration);
 
+export const ACME_EMAIL = "kim@acme.co.za";
+export const NORTHWIND_EMAIL = "sana@northwind.co.za";
+
 export const bookings: Booking[] = [
   {
     id: "bk-1001",
@@ -28,6 +31,7 @@ export const bookings: Booking[] = [
     deliveryWindow: "Tomorrow · 07:30",
     crew: crew.slice(0, 5),
     assets: [],
+    clientEmail: ACME_EMAIL,
   },
   {
     id: "bk-1002",
@@ -37,6 +41,7 @@ export const bookings: Booking[] = [
     deliveryWindow: "Today · 05:00",
     crew: crew.slice(2, 7),
     assets: [],
+    clientEmail: ACME_EMAIL,
   },
   {
     id: "bk-1003",
@@ -46,26 +51,27 @@ export const bookings: Booking[] = [
     deliveryWindow: "Fri · 06:00",
     crew: crew.slice(0, 3),
     assets: [],
+    clientEmail: NORTHWIND_EMAIL,
   },
 ];
 
 export const quotes: Quote[] = [
-  { id: "qt-4501", customerId: "cus-01", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "approved", createdAt: "2026-09-18" },
-  { id: "qt-4502", customerId: "cus-02", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "approved", createdAt: "2026-09-15" },
-  { id: "qt-4504", customerId: "cus-03", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "sent", createdAt: "2026-09-22" },
-  { id: "qt-4505", customerId: "cus-04", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "draft", createdAt: "2026-09-24" },
+  { id: "qt-4501", customerId: "cus-01", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "approved", createdAt: "2026-09-18", clientEmail: ACME_EMAIL },
+  { id: "qt-4502", customerId: "cus-02", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "approved", createdAt: "2026-09-15", clientEmail: ACME_EMAIL },
+  { id: "qt-4504", customerId: "cus-03", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "sent", createdAt: "2026-09-22", clientEmail: NORTHWIND_EMAIL },
+  { id: "qt-4505", customerId: "cus-04", configuration: defaultConfiguration, recommendedPackage: samplePackage, status: "draft", createdAt: "2026-09-24", clientEmail: NORTHWIND_EMAIL },
 ];
 
 export const invoices: Invoice[] = [
-  { id: "inv-9001", bookingId: "bk-1001", eventName: "Corporate Product Launch", amount: 84500, status: "sent", dueDate: "2026-10-02" },
-  { id: "inv-9002", bookingId: "bk-1002", eventName: "Outdoor Brand Activation", amount: 156200, status: "paid", dueDate: "2026-09-20" },
-  { id: "inv-8994", bookingId: "bk-1003", eventName: "Corporate Conference — Day 1", amount: 61300, status: "overdue", dueDate: "2026-09-19" },
+  { id: "inv-9001", bookingId: "bk-1001", eventName: "Corporate Product Launch", amount: 84500, status: "sent", dueDate: "2026-10-02", clientEmail: ACME_EMAIL },
+  { id: "inv-9002", bookingId: "bk-1002", eventName: "Outdoor Brand Activation", amount: 156200, status: "paid", dueDate: "2026-09-20", clientEmail: ACME_EMAIL },
+  { id: "inv-8994", bookingId: "bk-1003", eventName: "Corporate Conference — Day 1", amount: 61300, status: "overdue", dueDate: "2026-09-19", clientEmail: NORTHWIND_EMAIL },
 ];
 
 export const upcomingEvents = [
-  { name: "Corporate Product Launch", status: "Confirmed", assets: 32, crewCount: 5, delivery: "Tomorrow 07:30" },
-  { name: "Outdoor Brand Activation", status: "In Progress", assets: 58, crewCount: 8, delivery: "Today 05:00" },
-  { name: "Corporate Conference — Day 2", status: "Confirmed", assets: 21, crewCount: 3, delivery: "Fri 06:00" },
+  { name: "Corporate Product Launch", status: "Confirmed", assets: 32, crewCount: 5, delivery: "Tomorrow 07:30", clientEmail: ACME_EMAIL },
+  { name: "Outdoor Brand Activation", status: "In Progress", assets: 58, crewCount: 8, delivery: "Today 05:00", clientEmail: ACME_EMAIL },
+  { name: "Corporate Conference — Day 2", status: "Confirmed", assets: 21, crewCount: 3, delivery: "Fri 06:00", clientEmail: NORTHWIND_EMAIL },
 ];
 
 export const logisticsStages = [
@@ -87,6 +93,7 @@ export const activeDelivery = {
   currentLocation: "N1 North, approaching Midrand",
   eta: "06:40",
   currentStage: "En Route" as (typeof logisticsStages)[number],
+  clientEmail: ACME_EMAIL,
 };
 
 export const assetLifecycle = [
@@ -126,3 +133,28 @@ export const sampleAssets: Asset[] = [
   { id: "as-4", equipmentId: "eq-013", serial: "LW-0087", status: "inspection" },
   { id: "as-5", equipmentId: "eq-011", serial: "SD-0305", status: "maintenance" },
 ];
+
+/** Mock records are tagged with the demo client they belong to. Admins see everything. */
+export interface PortalScope {
+  bookings: Booking[];
+  quotes: Quote[];
+  invoices: Invoice[];
+  upcomingEvents: typeof upcomingEvents;
+  activeDelivery: typeof activeDelivery | null;
+}
+
+export function portalScope(viewer: PortalViewer): PortalScope {
+  if (viewer.role === "admin") {
+    return { bookings, quotes, invoices, upcomingEvents, activeDelivery };
+  }
+  const email = viewer.email;
+  const mine = <T extends { clientEmail?: string }>(rows: T[]): T[] =>
+    rows.filter((row) => row.clientEmail === email);
+  return {
+    bookings: mine(bookings),
+    quotes: mine(quotes),
+    invoices: mine(invoices),
+    upcomingEvents: mine(upcomingEvents),
+    activeDelivery: activeDelivery.clientEmail === email ? activeDelivery : null,
+  };
+}

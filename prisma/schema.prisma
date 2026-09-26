@@ -7,6 +7,22 @@ datasource db {
   provider = "postgresql"
 }
 
+model Client {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  company      String?
+  passwordHash String
+  role         String   @default("client")
+  status       String   @default("pending")
+  created      DateTime @default(now())
+
+  contactMessages ContactMessage[]
+  quoteRequests   QuoteRequest[]
+  builderQuotes   BuilderQuote[]
+  builderConfigs  BuilderConfig[]
+}
+
 model ContactMessage {
   id      String  @id @default(cuid())
   name    String
@@ -16,6 +32,11 @@ model ContactMessage {
   message String  @db.Text
   handled Boolean @default(false)
   created DateTime @default(now())
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
 }
 
 model QuoteRequest {
@@ -30,17 +51,27 @@ model QuoteRequest {
   notes      String?   @db.Text
   status     String    @default("new")
   created    DateTime  @default(now())
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
 }
 
 model BuilderQuote {
-  id            String   @id @default(cuid())
-  reference     String   @unique
-  configuration Json
+  id             String   @id @default(cuid())
+  reference      String   @unique
+  configuration  Json
   recommendation Json
-  basket        Json
-  estimateTotal Int
-  status        String   @default("new")
-  created       DateTime @default(now())
+  basket         Json
+  estimateTotal  Int
+  status         String   @default("new")
+  created        DateTime @default(now())
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
 }
 
 model BuilderConfig {
@@ -50,4 +81,9 @@ model BuilderConfig {
   configuration Json
   created       DateTime @default(now())
   updated       DateTime @updatedAt
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
 }

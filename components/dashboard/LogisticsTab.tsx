@@ -1,6 +1,23 @@
-import { logisticsStages, activeDelivery, vehicles } from "@/data/portal";
+import { logisticsStages, portalScope, vehicles } from "@/data/portal";
+import type { PortalViewer } from "@/types";
 
-export function LogisticsTab() {
+export function LogisticsTab({ viewer }: { viewer: PortalViewer }) {
+  const { activeDelivery } = portalScope(viewer);
+  const isAdmin = viewer.role === "admin";
+
+  if (!activeDelivery) {
+    return (
+      <div>
+        <div className="mb-3.5 text-xs font-semibold uppercase tracking-[2px] text-accent">Live Logistics</div>
+        <h2 className="mb-6 font-display text-lg font-bold">Know where your event infrastructure is.</h2>
+        <p className="rounded border border-dashed border-border bg-surface px-5 py-4 text-[13px] text-text-faint">
+          Nothing is on the road for your events right now. STAGEGRID tracks every truck, driver and lead
+          technician from load-out to strike.
+        </p>
+      </div>
+    );
+  }
+
   const stageIndex = logisticsStages.indexOf(activeDelivery.currentStage);
 
   return (
@@ -23,7 +40,7 @@ export function LogisticsTab() {
         </div>
 
         <div className="mb-5 rounded border border-border bg-bg px-4 py-3 text-[13px] text-text-dim">
-          📍 {activeDelivery.currentLocation}
+          ● {activeDelivery.currentLocation}
         </div>
 
         <div className="overflow-x-auto">
@@ -55,15 +72,21 @@ export function LogisticsTab() {
         </div>
       </div>
 
-      <h3 className="mb-3.5 mt-8 font-display text-base font-bold">Fleet Status</h3>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {vehicles.map((v) => (
-          <div key={v.id} className="rounded border border-border bg-surface p-4">
-            <div className="text-[13.5px] font-semibold">{v.label}</div>
-            <div className="mt-1.5 text-[11px] uppercase tracking-wide text-text-faint">{v.status.replace("-", " ")}</div>
+      {isAdmin && (
+        <>
+          <h3 className="mb-3.5 mt-8 font-display text-base font-bold">Fleet Status</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {vehicles.map((v) => (
+              <div key={v.id} className="rounded border border-border bg-surface p-4">
+                <div className="text-[13.5px] font-semibold">{v.label}</div>
+                <div className="mt-1.5 text-[11px] uppercase tracking-wide text-text-faint">
+                  {v.status.replace("-", " ")}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }

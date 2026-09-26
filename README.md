@@ -181,6 +181,85 @@ Infrastructure:
   the production alias — writes return `mocked: false` and land in Postgres, `GET /api/builder-configs/[ref]`
   round-trips a saved configuration, and validation errors come back as `400` with field-level messages.
 
+## Phase 10 — Portal password gate
+
+`/portal` was publicly reachable. It is now behind a password:
+
+- **`lib/portal-auth.ts`** — stateless session tokens: `<expiryMs>.<HMAC-SHA256>` signed with
+  `PORTAL_SESSION_SECRET` (derived from the password when unset), verified in constant time. Cookie is
+  `HttpOnly`, `SameSite=Lax`, `Secure` in production, 12 hours.
+- **`/portal`** (`app/portal/page.tsx`) validates the cookie server-side and `redirect()`s to
+  **`/portal/login`** — no password, no dashboard. The portal is also marked `noindex`.
+- **`POST /api/portal-session`** validates the password (HMAC-then-compare, not a plain string check) and sets
+  the cookie; **`DELETE /api/portal-session`** signs out via the button in the portal header.
+- Password comes from `PORTAL_PASSWORD` (set for Production/Preview/Development on Vercel); with no env var
+  the local default is `stagegrid`, with a warning logged if that default is ever used in production.
+- Verified locally and against production: no session → `307 /portal/login`, wrong password → `401`, correct
+  password → `200` with dashboard + Sign out, tampered token → `307`, homepage unaffected.
+
+## Phase 11 — per-client portal accounts and the Requests tab
+
+The single shared password from Phase 10 is gone: every client now signs in with **their own email +
+password**, and the portal shows their rows only.
+
+**Accounts and sign-in**
+
+- **`prisma/schema.prisma`** — new `Client` model (`email` unique, `name`, `company`, `passwordHash`,
+  `role` = `admin` | `client`, `status` = `pending` | `active` | `suspended`), plus a nullable `clientId`
+  (+ index) on `ContactMessage`, `QuoteRequest`, `BuilderQuote` and `BuilderConfig`. Migration
+  `prisma/migrations/20260926010000_client_accounts`.
+- **`lib/portal-auth.ts`** — passwords are hashed with `scrypt` (N=16384, 16-byte salt, stored as
+  `scrypt$salt$hash`) and verified in constant time; session tokens are now
+  `<clientId>.<role>.<expiryMs>.<HMAC-SHA256>` signed with `PORTAL_SESSION_SECRET`, still `HttpOnly`,
+  `SameSite=Lax`, `Secure` in production, 12 hours. `sessionFromRequest()` lets API routes attribute a
+  submission to whoever is signed in.
+- **`POST /api/portal-session`** signs in on `{ email, password }` — wrong credentials → `401`, a
+  `pending` account → `403`, a suspended one → `403`. **`DELETE`** still signs out.
+- **No email service is available**, so access is requested in the portal itself: **`POST /api/access-requests`**
+  creates a `pending` account from `{ name, company?, email, password }`, and a STAGEGRID admin activates it
+  from the Requests tab (**`PATCH /api/portal-clients/[id]`**, admin-only — `401` without a session, `403` for
+  a client account).
+- **Seeded accounts** (`npm run db:seed`, `scripts/seed-clients.js`, upserts on email):
+
+  | role | email | password |
+  | --- | --- | --- |
+  | admin | `ops@stagegrid.co.za` | `SG-62Jzyw` (override with `PORTAL_ADMIN_PASSWORD`) |
+  | client | `kim@acme.co.za` | `acme-portal-2026` |
+  | client | `sana@northwind.co.za` | `northwind-portal-2026` |
+
+**Requests tab (`components/dashboard/RequestsTab.tsx`)**
+
+- Reads live rows through `lib/portal-requests.ts`: portal access requests, website quote requests,
+  builder quotes, saved configurations and contact messages — newest first, dates rendered as ZA dates.
+- **Admin** sees everything, including the pending-account queue with an **Activate** button that calls
+  `PATCH /api/portal-clients/[id]` and reloads. **A client sees only rows whose `clientId` is theirs**,
+  under "My Requests"; empty sections render an explicit empty state instead of a blank table.
+- Every write endpoint now tags its row: `POST /api/contact`, `POST /api/quotes`, `POST /api/builder-quotes`
+  and `POST /api/builder-configs` set `clientId` from the session cookie (anonymous submissions stay `null`
+  and remain admin-only).
+
+**Role-aware shell**
+
+- `PortalShell` builds its tab list from the viewer: admins keep all eight tabs plus **Requests**; a client
+  gets **Overview / My Events / Quotes & Invoices / Logistics / My Requests** — crew, warehouse assets,
+  equipment inventory and the STAGEGRID OS architecture diagram stay internal. The sidebar shows the signed-in
+  name, email and account type.
+- Mock dashboard records (`data/portal.ts`) are tagged with `clientEmail` and filtered by
+  `portalScope(viewer)`, so the two demo clients each see their own bookings, quotes, invoices, upcoming
+  events and live delivery — Acme sees a delivery, Northwind sees an empty state.
+- `/portal` resolves the session to a `Client` row server-side: unknown, `pending` or `suspended` accounts
+  are redirected to `/portal/login`.
+
+**Verification**
+
+- `tsc --noEmit`, `next lint` and `next build` clean (**31 routes**, `/portal` and `/portal/login` dynamic).
+- `npm run check:portal` (`scripts/render-check.tsx`, run with `npx tsx --tsconfig tsconfig.render.json`)
+  server-renders the shell, Requests tab and Overview for admin/both clients and asserts the tab lists,
+  sections and data scoping.
+- Exercised against `next start`: sign-in matrix (bad password `401`, pending `403`, active `200`), no
+  session `307`, a quote submitted while signed in as Kim appears in Kim's portal and not Sana's, admin-only
+  `PATCH` (`401`/`403`/`200`) and the pending → activate → sign-in loop.
+
 ## What's in Phase 1
 
 - **Design system**: dark industrial tokens in `tailwind.config.ts` / `app/globals.css`, matching the earlier

@@ -1,3 +1,4 @@
+import { sessionFromRequest } from "@/lib/portal-auth";
 import {
   EMAIL_PATTERN,
   asOptionalString,
@@ -60,6 +61,7 @@ export async function POST(request: Request): Promise<Response> {
         email: value.email,
         phone: value.phone,
         message: value.message,
+        clientId: sessionFromRequest(request)?.clientId ?? null,
       },
     })
   );
