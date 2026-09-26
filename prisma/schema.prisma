@@ -21,6 +21,10 @@ model Client {
   quoteRequests   QuoteRequest[]
   builderQuotes   BuilderQuote[]
   builderConfigs  BuilderConfig[]
+  bookings        Booking[]
+  quotes          Quote[]
+  invoices        Invoice[]
+  deliveries      Delivery[]
 }
 
 model ContactMessage {
@@ -84,6 +88,115 @@ model BuilderConfig {
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+}
+
+// ---- Portal modules managed by the admin (CRUD) -------------------------------
+
+model Product {
+  id                 String   @id @default(cuid())
+  sku                String   @unique
+  name               String
+  category           String
+  description        String   @default("")
+  specs              Json?
+  dailyRate          Int      @default(0)
+  available          Boolean  @default(true)
+  quantityAvailable  Int      @default(0)
+  compatiblePackages Json?
+  created            DateTime @default(now())
+  updated            DateTime @updatedAt
+}
+
+model Booking {
+  id             String    @id @default(cuid())
+  reference      String    @unique
+  eventName      String
+  status         String    @default("confirmed")
+  deliveryWindow String    @default("")
+  eventDate      DateTime? @db.Date
+  crewIds        Json?
+  clientId       String?
+  client         Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  created        DateTime  @default(now())
+  updated        DateTime  @updatedAt
+
+  @@index([clientId])
+}
+
+model Quote {
+  id            String   @id @default(cuid())
+  reference     String   @unique
+  status        String   @default("draft")
+  estimateTotal Int      @default(0)
+  clientId      String?
+  client        Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
+
+  @@index([clientId])
+}
+
+model Invoice {
+  id         String    @id @default(cuid())
+  reference  String    @unique
+  eventName  String
+  amount     Int       @default(0)
+  status     String    @default("draft")
+  dueDate    DateTime? @db.Date
+  bookingRef String?
+  clientId   String?
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  created    DateTime  @default(now())
+  updated    DateTime  @updatedAt
+
+  @@index([clientId])
+}
+
+model CrewMember {
+  id      String   @id @default(cuid())
+  name    String
+  role    String   @default("general")
+  phone   String?
+  active  Boolean  @default(true)
+  created DateTime @default(now())
+  updated DateTime @updatedAt
+}
+
+model Vehicle {
+  id      String   @id @default(cuid())
+  label   String   @unique
+  status  String   @default("warehouse")
+  driver  String?
+  created DateTime @default(now())
+  updated DateTime @updatedAt
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  serial      String   @unique
+  equipmentId String
+  status      String   @default("available")
+  bookingRef  String?
+  created     DateTime @default(now())
+  updated     DateTime @updatedAt
+}
+
+model Delivery {
+  id               String   @id @default(cuid())
+  eventName        String
+  truck            String
+  driver           String
+  leadTechnician   String
+  currentLocation  String
+  eta              String
+  currentStage     String   @default("Warehouse")
+  active           Boolean  @default(true)
+  clientId         String?
+  client           Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  created          DateTime @default(now())
+  updated          DateTime @updatedAt
 
   @@index([clientId])
 }

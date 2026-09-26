@@ -1,6 +1,6 @@
-import { portalScope } from "@/data/portal";
-import type { PortalViewer } from "@/types";
+import type { PortalAccountRow, PortalData, PortalViewer } from "@/types";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { AdminCrud } from "./AdminCrud";
 
 const statusVariant: Record<string, BadgeProps["variant"]> = {
   confirmed: "ok",
@@ -9,8 +9,28 @@ const statusVariant: Record<string, BadgeProps["variant"]> = {
   cancelled: "warn",
 };
 
-export function EventsTab({ viewer }: { viewer: PortalViewer }) {
-  const { bookings } = portalScope(viewer);
+interface EventsTabProps {
+  viewer: PortalViewer;
+  data: PortalData;
+  canManage: boolean;
+  accounts: PortalAccountRow[];
+}
+
+export function EventsTab({ viewer, data, canManage, accounts }: EventsTabProps) {
+  const bookings = data.bookings;
+
+  if (canManage) {
+    return (
+      <AdminCrud
+        moduleKey="bookings"
+        rows={bookings as unknown as Record<string, unknown>[]}
+        accounts={accounts}
+        heading="Active bookings"
+        allowCreate
+        allowDelete
+      />
+    );
+  }
 
   return (
     <div>
@@ -32,20 +52,23 @@ export function EventsTab({ viewer }: { viewer: PortalViewer }) {
               </tr>
             </thead>
             <tbody>
-              {bookings.map((b) => (
-                <tr key={b.id} className="border-b border-border last:border-b-0">
-                  <td className="px-5 py-3.5 font-medium">{b.eventName}</td>
+              {bookings.map((booking) => (
+                <tr key={booking.id} className="border-b border-border last:border-b-0">
+                  <td className="px-5 py-3.5 font-medium">{booking.eventName}</td>
                   <td className="px-5 py-3.5">
-                    <Badge variant={statusVariant[b.status]}>{b.status.replace("-", " ")}</Badge>
+                    <Badge variant={statusVariant[booking.status]}>{booking.status.replace("-", " ")}</Badge>
                   </td>
-                  <td className="px-5 py-3.5 text-text-dim">{b.deliveryWindow}</td>
-                  <td className="px-5 py-3.5 text-text-dim">{b.crew.length}</td>
-                  <td className="px-5 py-3.5 text-text-faint">{b.id}</td>
+                  <td className="px-5 py-3.5 text-text-dim">{booking.deliveryWindow}</td>
+                  <td className="px-5 py-3.5 text-text-dim">{booking.crewCount}</td>
+                  <td className="px-5 py-3.5 text-text-faint">{booking.reference}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {viewer.role === "client" && (
+        <p className="mt-4 text-[12.5px] text-text-faint">Bookings shown are the ones on your account.</p>
       )}
     </div>
   );

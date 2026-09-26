@@ -62,10 +62,40 @@ function Section({
   );
 }
 
-export function RequestsTab({ viewer, requests }: { viewer: PortalViewer; requests: PortalRequests }) {
+export function RequestsTab({
+  viewer,
+  requests,
+  canManage,
+}: {
+  viewer: PortalViewer;
+  requests: PortalRequests;
+  canManage: boolean;
+}) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isAdmin = viewer.role === "admin";
+
+  async function messageAction(messageId: string, method: "PATCH" | "DELETE", body?: unknown) {
+    setBusyId(messageId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/messages/${messageId}`, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setError(data.error ?? "We could not update that message.");
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function approve(accountId: string) {
     setBusyId(accountId);
@@ -103,7 +133,7 @@ export function RequestsTab({ viewer, requests }: { viewer: PortalViewer; reques
         </p>
       </div>
 
-      {isAdmin && (
+      {canManage && (
         <Section
           title="Portal access requests"
           hint="Activate an account to let that person sign in with their own email and password."
@@ -257,8 +287,29 @@ export function RequestsTab({ viewer, requests }: { viewer: PortalViewer; reques
                 <Badge variant={row.handled ? "ok" : "warn"}>{row.handled ? "handled" : "new"}</Badge>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-[13.5px] leading-relaxed text-text-dim">{row.message}</p>
+              {canManage && (
+                <div className="mt-3 flex flex-wrap gap-4 border-t border-border pt-3 text-[12.5px]">
+                  <button
+                    type="button"
+                    className="text-accent underline-offset-4 hover:underline disabled:opacity-40"
+                    disabled={busyId === row.id}
+                    onClick={() => messageAction(row.id, "PATCH", { handled: !row.handled })}
+                  >
+                    {row.handled ? "Reopen" : "Mark handled"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-text-faint underline-offset-4 hover:text-warn hover:underline disabled:opacity-40"
+                    disabled={busyId === row.id}
+                    onClick={() => messageAction(row.id, "DELETE")}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
             </div>
           ))}
+          {error && <p className="text-[12.5px] text-warn">{error}</p>}
         </div>
       </Section>
     </div>

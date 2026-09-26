@@ -3,15 +3,32 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { currentSession } from "@/lib/portal-auth";
 import { loadPortalRequests } from "@/lib/portal-requests";
+import { loadPortalData } from "@/lib/portal-data";
 import { PortalShell } from "@/components/dashboard/PortalShell";
 import { SignOutButton } from "@/components/dashboard/SignOutButton";
-import type { PortalViewer } from "@/types";
+import type { PortalAccountRow, PortalViewer } from "@/types";
 
 export const metadata: Metadata = {
   title: "Portal — STAGEGRID",
   description: "STAGEGRID OS — events, equipment, quotes, invoices, crew, logistics and assets in one dashboard.",
   robots: { index: false, follow: false },
 };
+
+async function loadAccounts(viewer: PortalViewer): Promise<PortalAccountRow[]> {
+  if (viewer.role !== "admin") return [];
+  const db = getDb();
+  if (!db) return [];
+  const rows = await db.client.findMany({ orderBy: { created: "desc" } });
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    company: row.company,
+    role: row.role === "admin" || row.role === "staff" ? row.role : "client",
+    status: row.status === "active" || row.status === "suspended" ? row.status : "pending",
+    created: row.created.toISOString(),
+  }));
+}
 
 export default async function PortalPage() {
   const session = currentSession();
@@ -26,14 +43,21 @@ export default async function PortalPage() {
     name: account.name,
     email: account.email,
     company: account.company,
-    role: account.role === "admin" ? "admin" : "client",
+    role: account.role === "staff" ? "staff" : account.role === "admin" ? "admin" : "client",
   };
-  const requests = await loadPortalRequests(viewer);
+
+  const [requests, data, accounts] = await Promise.all([
+    loadPortalRequests(viewer),
+    loadPortalData(viewer),
+    loadAccounts(viewer),
+  ]);
 
   const firstName = viewer.name.split(" ")[0] || viewer.name;
   const subtitle =
     viewer.role === "admin"
-      ? "Every access request, quote request and message sent through the portal."
+      ? "Every request, booking and account — manage it all from the tabs below."
+      : viewer.role === "staff"
+      ? "STAGEGRID operations view — events, equipment, crew and logistics."
       : "Your bookings, quotes, invoices and requests — nothing from anyone else.";
 
   return (
@@ -48,7 +72,7 @@ export default async function PortalPage() {
           <SignOutButton />
         </div>
       </div>
-      <PortalShell viewer={viewer} requests={requests} />
+      <PortalShell viewer={viewer} requests={requests} data={data} accounts={accounts} />
     </main>
   );
 }

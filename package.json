@@ -10,7 +10,7 @@
     "postinstall": "prisma generate --no-hints",
     "db:generate": "prisma generate --no-hints",
     "db:migrate": "prisma migrate deploy",
-    "db:seed": "node scripts/seed-clients.js",
+    "db:seed": "node scripts/seed-clients.js && npx --yes tsx scripts/seed-portal.ts",
     "check:portal": "npx --yes tsx --tsconfig tsconfig.render.json scripts/render-check.tsx",
     "db:studio": "prisma studio"
   },
@@ -46,3 +46,4 @@
     "typescript": "^5.4.5"
   }
 }
+

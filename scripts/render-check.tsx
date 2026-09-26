@@ -1,10 +1,13 @@
-﻿import React from "react";
+import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PortalShell } from "@/components/dashboard/PortalShell";
 import { RequestsTab } from "@/components/dashboard/RequestsTab";
 import { OverviewTab } from "@/components/dashboard/OverviewTab";
+import { mockPortalData } from "@/lib/portal-data";
 import { ACME_EMAIL, NORTHWIND_EMAIL } from "@/data/portal";
-import type { PortalRequests, PortalViewer } from "@/types";
+import type { PortalAccountRow, PortalRequests, PortalViewer } from "@/types";
+
+const accounts: PortalAccountRow[] = [];
 
 const requests: PortalRequests = {
   contactMessages: [
@@ -52,13 +55,19 @@ const requests: PortalRequests = {
 };
 
 const admin: PortalViewer = { id: "cl_admin", name: "STAGEGRID Ops", email: "ops@stagegrid.co.za", role: "admin" };
+const staff: PortalViewer = { id: "cl_staff", name: "Sipho Dlamini", email: "sipho@stagegrid.co.za", role: "staff" };
 const acme: PortalViewer = { id: "cl_acme", name: "Kim Naidoo", email: ACME_EMAIL, company: "Acme Corp", role: "client" };
 const northwind: PortalViewer = { id: "cl_nw", name: "Sana Patel", email: NORTHWIND_EMAIL, company: "Northwind Media", role: "client" };
+
+const dataAdmin = mockPortalData(admin);
+const dataStaff = mockPortalData(staff);
+const dataAcme = mockPortalData(acme);
+const dataNorthwind = mockPortalData(northwind);
 
 const checks: { label: string; html: string; contains?: string[]; excludes?: string[] }[] = [
   {
     label: "RequestsTab (admin)",
-    html: renderToStaticMarkup(<RequestsTab viewer={admin} requests={requests} />),
+    html: renderToStaticMarkup(<RequestsTab viewer={admin} requests={requests} canManage />),
     contains: [
       "Portal access requests",
       "pending@demo.co.za",
@@ -70,50 +79,67 @@ const checks: { label: string; html: string; contains?: string[]; excludes?: str
       "Saved builder configurations",
       "Contact messages",
       "Hello there",
+      "Mark handled",
+      "Delete",
       "R78",
     ],
     excludes: [],
   },
   {
     label: "RequestsTab (client)",
-    html: renderToStaticMarkup(<RequestsTab viewer={acme} requests={requests} />),
+    html: renderToStaticMarkup(<RequestsTab viewer={acme} requests={requests} canManage={false} />),
     contains: ["Your requests", "Quote requests"],
-    excludes: ["Portal access requests", "pending@demo.co.za", "Activate"],
+    excludes: ["Portal access requests", "pending@demo.co.za", "Activate", "Mark handled"],
   },
   {
     label: "PortalShell (admin)",
-    html: renderToStaticMarkup(<PortalShell viewer={admin} requests={requests} />),
+    html: renderToStaticMarkup(
+      <PortalShell viewer={admin} requests={requests} data={dataAdmin} accounts={accounts} />
+    ),
     contains: [
       ">Overview<",
+      ">Events &amp; Bookings<",
       ">Equipment<",
       ">Crew<",
       ">Assets<",
       ">STAGEGRID OS<",
       ">Requests<",
+      ">Clients &amp; Staff<",
       "STAGEGRID admin",
     ],
+    excludes: [],
+  },
+  {
+    label: "PortalShell (staff)",
+    html: renderToStaticMarkup(
+      <PortalShell viewer={staff} requests={requests} data={dataStaff} accounts={accounts} />
+    ),
+    contains: [">Equipment<", ">Crew<", ">Assets<", ">My Requests<", "STAGEGRID staff"],
+    excludes: [">Clients &amp; Staff<"],
   },
   {
     label: "PortalShell (client)",
-    html: renderToStaticMarkup(<PortalShell viewer={acme} requests={requests} />),
+    html: renderToStaticMarkup(
+      <PortalShell viewer={acme} requests={requests} data={dataAcme} accounts={accounts} />
+    ),
     contains: [">Overview<", ">My Events<", ">Quotes &amp; Invoices<", ">Logistics<", ">My Requests<", "Acme Corp"],
-    excludes: [">Equipment<", ">Crew<", ">Assets<", ">STAGEGRID OS<"],
+    excludes: [">Equipment<", ">Crew<", ">Assets<", ">STAGEGRID OS<", ">Clients &amp; Staff<"],
   },
   {
     label: "OverviewTab (acme)",
-    html: renderToStaticMarkup(<OverviewTab viewer={acme} />),
+    html: renderToStaticMarkup(<OverviewTab viewer={acme} data={dataAcme} />),
     contains: ["Corporate Product Launch", "Outdoor Brand Activation", "Upcoming Events"],
     excludes: ["Corporate Conference", "Asset Utilisation"],
   },
   {
     label: "OverviewTab (northwind)",
-    html: renderToStaticMarkup(<OverviewTab viewer={northwind} />),
+    html: renderToStaticMarkup(<OverviewTab viewer={northwind} data={dataNorthwind} />),
     contains: ["Corporate Conference", "Quotes", "Overdue Invoices"],
     excludes: ["Corporate Product Launch", "Asset Utilisation"],
   },
   {
     label: "OverviewTab (admin)",
-    html: renderToStaticMarkup(<OverviewTab viewer={admin} />),
+    html: renderToStaticMarkup(<OverviewTab viewer={admin} data={dataAdmin} />),
     contains: ["Corporate Product Launch", "Corporate Conference", "Asset Utilisation"],
   },
 ];
@@ -133,5 +159,3 @@ for (const check of checks) {
 }
 console.log(failures === 0 ? "\nAll render checks passed." : `\n${failures} render check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
-
-

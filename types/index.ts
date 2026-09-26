@@ -1,4 +1,4 @@
-// STAGEGRID core domain types.
+﻿// STAGEGRID core domain types.
 // These model the future STAGEGRID OS data layer. Mock data implements
 // these shapes today; a real API can be swapped in without touching
 // consuming components, since components only ever read these types.
@@ -163,16 +163,16 @@ export interface StageEvent {
   outcome: string;
 }
 
-/** Whoever is signed into the portal — a STAGEGRID admin or one client account. */
+/** Whoever is signed into the portal â€” a STAGEGRID admin or one client account. */
 export interface PortalViewer {
   id: string;
   name: string;
   email: string;
   company?: string | null;
-  role: "admin" | "client";
+  role: PortalRole;
 }
 
-/** Rows shown in the portal Requests tab — one shape regardless of which table they came from. */
+/** Rows shown in the portal Requests tab â€” one shape regardless of which table they came from. */
 export interface PortalContactMessage {
   id: string;
   name: string;
@@ -228,4 +228,129 @@ export interface PortalRequests {
   builderQuotes: PortalBuilderQuote[];
   builderConfigs: PortalBuilderConfig[];
   accountRequests: PortalAccountRequest[];
+}
+
+// ---- Portal rows (admin-managed modules, DB-backed with a mock fallback) -----
+
+export type PortalRole = "admin" | "staff" | "client";
+
+export interface PortalBookingRow {
+  id: string;
+  reference: string;
+  eventName: string;
+  status: string;
+  deliveryWindow: string;
+  crewCount: number;
+  clientId?: string | null;
+}
+
+export interface PortalQuoteRow {
+  id: string;
+  reference: string;
+  status: string;
+  estimateTotal: number;
+  createdAt: string;
+  clientId?: string | null;
+}
+
+export interface PortalInvoiceRow {
+  id: string;
+  reference: string;
+  eventName: string;
+  status: string;
+  amount: number;
+  dueDate: string;
+  clientId?: string | null;
+}
+
+export interface PortalUpcomingRow {
+  name: string;
+  status: string;
+  assets: number;
+  crewCount: number;
+  delivery: string;
+  clientId?: string | null;
+}
+
+export interface PortalCrewRow {
+  id: string;
+  name: string;
+  role: string;
+  phone?: string | null;
+  active: boolean;
+}
+
+export interface PortalVehicleRow {
+  id: string;
+  label: string;
+  status: string;
+  driver?: string | null;
+}
+
+export interface PortalAssetRow {
+  id: string;
+  serial: string;
+  equipmentId: string;
+  productName: string;
+  status: string;
+  bookingRef?: string | null;
+}
+
+export interface PortalDeliveryRow {
+  id: string;
+  eventName: string;
+  truck: string;
+  driver: string;
+  leadTechnician: string;
+  currentLocation: string;
+  eta: string;
+  currentStage: string;
+  active: boolean;
+  clientId?: string | null;
+}
+
+export interface PortalAssetStat {
+  status: string;
+  count: number;
+}
+
+export interface PortalAssetMetrics {
+  utilisationPct: number;
+  activeDeployments: number;
+  inMaintenance: number;
+  missing: number;
+  revenuePerAssetAvg: number;
+}
+
+/** Everything the dashboard tabs render. Built server-side, mocked without a database. */
+export interface PortalData {
+  bookings: PortalBookingRow[];
+  quotes: PortalQuoteRow[];
+  invoices: PortalInvoiceRow[];
+  upcomingEvents: PortalUpcomingRow[];
+  activeDelivery: PortalDeliveryRow | null;
+  deliveries: PortalDeliveryRow[];
+  crew: PortalCrewRow[];
+  vehicles: PortalVehicleRow[];
+  assets: PortalAssetRow[];
+  products: PortalProductRow[];
+  assetSummary: PortalAssetStat[];
+  assetMetrics: PortalAssetMetrics;
+  source: "database" | "mock";
+}
+
+/** Account rows passed to the admin UI (clients & staff management + client pickers). */
+export interface PortalAccountRow {
+  id: string;
+  name: string;
+  email: string;
+  company?: string | null;
+  role: PortalRole;
+  status: "active" | "pending" | "suspended";
+  created: string;
+}
+
+/** Catalogue row as the portal sees it: sku-in-id plus the database row id for CRUD. */
+export interface PortalProductRow extends Equipment {
+  rowId: string;
 }

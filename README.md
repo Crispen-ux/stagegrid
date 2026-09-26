@@ -260,6 +260,61 @@ password**, and the portal shows their rows only.
   session `307`, a quote submitted while signed in as Kim appears in Kim's portal and not Sana's, admin-only
   `PATCH` (`401`/`403`/`200`) and the pending → activate → sign-in loop.
 
+## Phase 12 — admin CRUD across every portal module
+
+Admins now run the operation from inside the portal: one generic CRUD UI drives a management panel in every
+dashboard tab, backed by the same module definitions the API validates with.
+
+**Data model (`prisma/schema.prisma`, migration `20260926020000_portal_modules`)**
+
+- Eight new models — `Product`, `Booking`, `Quote`, `Invoice`, `CrewMember`, `Vehicle`, `Asset`, `Delivery` —
+  mirror the dashboard's typed shapes and keep a nullable `clientId` so client accounts stay scoped.
+- `npm run db:seed` also runs `scripts/seed-portal.ts` (insert-only, tsx): 21 products, 3 bookings, 7 crew,
+  3 vehicles, 5 assets, 1 delivery alongside the Phase 11 accounts.
+- `lib/portal-data.ts` builds `PortalData` from those tables and falls back to the mock arrays when no
+  `DATABASE_URL` is configured — `source: "database" | "mock"` decides whether management controls are enabled.
+
+**One definition for API and UI (`lib/admin-schema.ts`)**
+
+- `ADMIN_MODULES` declares columns + form fields for `products, bookings, quotes, invoices, crew, vehicles,
+  assets, deliveries, clients, messages` — the API validates from it and `AdminCrud` renders its tables and
+  forms from it, so a new module is one object.
+- `parseModuleInput()` returns field-level `errors` (required fields, select options, number min, email shape,
+  8+ character passwords, dates → ISO) that the form shows next to each input; `jsonSafe()` flattens Prisma
+  `Date`s for the client. `messages` is `creatable: false` — rows only arrive from the public contact form,
+  so `POST` answers `405`.
+
+**API — `app/api/admin/[module]` (GET/POST) and `[module]/[id]` (PATCH/DELETE)**
+
+- Admin-only on every method: `401` without a session, `403` for a staff or client account.
+- `POST` → `201`, `PATCH`/`DELETE` → `200`; unknown module or missing row → `404`; validation → `400` with
+  `errors`; unique conflicts (SKU, reference, email, serial, crew name, vehicle label) → `409`; generated
+  references (`bk-…`, `SG-QT-…`, `inv-…`) retry on collision; a reference pointing at a deleted row → `400`.
+- `lib/admin-db.ts` maps delegates, hashes `password` → `passwordHash` on account writes and enforces the
+  account rules: an admin cannot change their own role, suspend their own account, delete themselves, or
+  delete the last active admin. Without a database every write answers `503` — mock mode is read-only.
+
+**Management UI (`components/dashboard/AdminCrud.tsx`)**
+
+- Generic panel: table from `columns`, **Add**/**Edit** forms from `fields` (selects, toggles, dates, money,
+  account and product reference pickers), inline delete confirmation, error/notice banners, then
+  `router.refresh()` so the server-rendered tab reloads with the new rows.
+- Wired in as an admin: Events & Bookings → `bookings`, Equipment → `products`, Crew → `crew`, Assets → asset
+  register, Quotes & Invoices → `quotes` + `invoices`, Logistics → `deliveries` + fleet, Requests → contact
+  messages get **Mark handled / Delete**, plus a new **Clients & Staff** tab for portal accounts
+  (staff appears as a role option). Staff keep the internal tabs read-only, clients are unchanged, and the
+  sidebar shows `Live database` or `Mock mode`.
+
+**Verification**
+
+- `tsc --noEmit`, `next lint`, `next build` and `npm run check:portal` clean — the render checks now assert the
+  staff shell, the Clients & Staff tab and the message actions.
+- 41/41 assertions against `next start`: guard matrix (`401`/`403`/`404`), a full product create → edit →
+  delete loop (duplicate SKU `409`, missing field `400`, delete-again `404`), booking reference generation,
+  a contact message created through the public form then handled and deleted through the admin API, account
+  rules (duplicate email `409`, missing/short password `400`, self-demote/self-delete `400`), a staff account
+  signing in but blocked from the admin API, and page checks for admin/staff/client/anon.
+
 ## What's in Phase 1
 
 - **Design system**: dark industrial tokens in `tailwind.config.ts` / `app/globals.css`, matching the earlier
@@ -277,9 +332,12 @@ password**, and the portal shows their rows only.
 
 ## Not yet built (next phases)
 
-- `/solutions/[slug]` detail pages, `/equipment` catalog + basket, `/projects`, `/about`, `/how-it-works`,
-  `/contact`, `/request-quote`, `/portal` dashboard, live logistics tracker, asset lifecycle dashboard,
-  dynamic pricing explainer, mock data for equipment/projects/crew/vehicles, shadcn/ui components, animations.
+- Email delivery (approval notices, sending quotes/invoices) — access is requested and activated in-portal.
+- Payments/settlement against invoices, and an availability calendar that decrements stock while a booking
+  holds equipment.
+- PDF export of quotes and invoices, a CSV bulk import, and an audit trail of admin edits.
+- The asset movement scan flow (Picked → Loaded → Returned) — the lifecycle statuses exist but are set by hand
+  in the asset register.
 
 ## Running it
 

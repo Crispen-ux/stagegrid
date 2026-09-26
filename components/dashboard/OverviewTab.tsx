@@ -1,5 +1,5 @@
-import { portalScope, assetMetrics } from "@/data/portal";
-import type { PortalViewer } from "@/types";
+import { assetMetrics as mockAssetMetrics } from "@/data/portal";
+import type { PortalData, PortalViewer } from "@/types";
 import { StatCard } from "./StatCard";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 
@@ -8,19 +8,23 @@ const statusVariant: Record<string, BadgeProps["variant"]> = {
   "In Progress": "accent",
 };
 
-export function OverviewTab({ viewer }: { viewer: PortalViewer }) {
-  const { upcomingEvents, bookings, invoices, quotes } = portalScope(viewer);
-  const activeBookings = bookings.filter((b) => b.status === "in-progress" || b.status === "confirmed").length;
-  const overdueInvoices = invoices.filter((i) => i.status === "overdue").length;
-  const isAdmin = viewer.role === "admin";
+export function OverviewTab({ viewer, data }: { viewer: PortalViewer; data: PortalData }) {
+  const { upcomingEvents, invoices, quotes, assetMetrics } = data;
+  const activeCount = upcomingEvents.filter((event) => event.status !== "Completed").length;
+  const overdueInvoices = invoices.filter((invoice) => invoice.status === "overdue").length;
+  const isInternal = viewer.role !== "client";
 
   return (
     <div>
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Upcoming Events" value={String(upcomingEvents.length)} />
-        <StatCard label="Active Bookings" value={String(activeBookings)} />
-        {isAdmin ? (
-          <StatCard label="Asset Utilisation" value={`${assetMetrics.utilisationPct}%`} sub="across full inventory" />
+        <StatCard label="Active Bookings" value={String(activeCount)} />
+        {isInternal ? (
+          <StatCard
+            label="Asset Utilisation"
+            value={`${assetMetrics?.utilisationPct ?? mockAssetMetrics.utilisationPct}%`}
+            sub="across full inventory"
+          />
         ) : (
           <StatCard label="Quotes" value={String(quotes.length)} sub="on your account" />
         )}
@@ -38,21 +42,21 @@ export function OverviewTab({ viewer }: { viewer: PortalViewer }) {
             No upcoming events on your account yet.
           </p>
         )}
-        {upcomingEvents.map((e) => (
+        {upcomingEvents.map((event) => (
           <div
-            key={e.name}
+            key={event.name}
             className="flex flex-col gap-3 rounded border border-border bg-surface p-5 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>
-              <div className="text-[15px] font-semibold">{e.name}</div>
+              <div className="text-[15px] font-semibold">{event.name}</div>
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-text-dim">
-                <span>{e.assets} assets</span>
-                <span>{e.crewCount} crew</span>
-                <span>Delivery: {e.delivery}</span>
+                <span>{event.assets} assets</span>
+                <span>{event.crewCount} crew</span>
+                <span>Delivery: {event.delivery}</span>
               </div>
             </div>
-            <Badge variant={statusVariant[e.status] ?? "default"} className="w-fit">
-              {e.status}
+            <Badge variant={statusVariant[event.status] ?? "default"} className="w-fit">
+              {event.status}
             </Badge>
           </div>
         ))}
