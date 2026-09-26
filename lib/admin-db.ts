@@ -1,5 +1,5 @@
 import type { Database } from "@/lib/db";
-import { ADMIN_MODULES, type AdminModule } from "@/lib/admin-schema";
+import { ADMIN_MODULES, type AdminModule, type LineItemInput } from "@/lib/admin-schema";
 import { hashPassword, type PortalSession } from "@/lib/portal-auth";
 import { makeReference } from "@/lib/server";
 
@@ -12,8 +12,10 @@ interface Delegate {
   findMany: (args?: Record<string, unknown>) => Promise<unknown[]>;
   findUnique: (args: Record<string, unknown>) => Promise<unknown | null>;
   create: (args: Record<string, unknown>) => Promise<unknown>;
+  createMany?: (args: Record<string, unknown>) => Promise<unknown>;
   update: (args: Record<string, unknown>) => Promise<unknown>;
   delete: (args: Record<string, unknown>) => Promise<unknown>;
+  deleteMany?: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
 const DELEGATES: Record<string, string> = {
@@ -27,6 +29,12 @@ const DELEGATES: Record<string, string> = {
   deliveries: "delivery",
   clients: "client",
   messages: "contactMessage",
+};
+
+/** Modules whose rows carry an itemised breakdown. */
+const LINE_MODULES: Record<string, { model: string; foreignKey: string }> = {
+  quotes: { model: "quoteItem", foreignKey: "quoteId" },
+  invoices: { model: "invoiceItem", foreignKey: "invoiceId" },
 };
 
 export class ModuleError extends Error {
@@ -44,6 +52,34 @@ export function delegateFor(db: Database, module: AdminModule): Delegate {
   const target = (db as unknown as Record<string, Delegate>)[name];
   if (!target) throw new ModuleError(500, `Model for "${module.key}" is missing.`);
   return target;
+}
+
+/** Quotes and invoices list with their line items attached, in order. */
+export async function listRows(db: Database, module: AdminModule): Promise<unknown[]> {
+  const delegate = delegateFor(db, module);
+  if (LINE_MODULES[module.key]) {
+    return delegate.findMany({ include: { items: { orderBy: { sortOrder: "asc" } } } });
+  }
+  return delegate.findMany();
+}
+
+function lineDelegate(db: Database, module: AdminModule): Delegate {
+  const config = LINE_MODULES[module.key];
+  const target = config ? (db as unknown as Record<string, Delegate>)[config.model] : undefined;
+  if (!target) throw new ModuleError(500, `Line item model for "${module.key}" is missing.`);
+  return target;
+}
+
+/** Replaces the whole breakdown of one row (items come as a complete list). */
+async function writeLines(db: Database, module: AdminModule, id: string, items: LineItemInput[]): Promise<void> {
+  const config = LINE_MODULES[module.key];
+  if (!config) return;
+  const delegate = lineDelegate(db, module);
+  if (delegate.deleteMany) await delegate.deleteMany({ where: { [config.foreignKey]: id } });
+  if (items.length === 0 || !delegate.createMany) return;
+  await delegate.createMany({
+    data: items.map((item, index) => ({ ...item, sortOrder: index, [config.foreignKey]: id })),
+  });
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -78,6 +114,7 @@ export function toWriteData(
     data.passwordHash = hashPassword(data.password);
   }
   delete data.password;
+  delete data.items; // breakdown rows are written separately by writeLines()
 
   if (module.reference && includeReference && !data[module.reference.field]) {
     data[module.reference.field] = makeReference(module.reference.prefix);
@@ -138,7 +175,27 @@ export async function createRow(
   if (module.key === "clients" && !input.password) {
     throw new ModuleError(400, "Validation failed.", { password: "A password is required." });
   }
-  return uniqueCreate(db, module, data);
+  const row = (await uniqueCreate(db, module, data)) as { id?: string } | null;
+  if (row && typeof row.id === "string" && LINE_MODULES[module.key]) {
+    await writeLines(db, module, row.id, Array.isArray(input.items) ? (input.items as LineItemInput[]) : []);
+    return withLines(db, module, row.id, row);
+  }
+  return row;
+}
+
+/** Re-reads a row with its breakdown attached (create/update responses). */
+async function withLines(
+  db: Database,
+  module: AdminModule,
+  id: string,
+  fallback: unknown
+): Promise<unknown> {
+  if (!LINE_MODULES[module.key]) return fallback;
+  const row = await delegateFor(db, module).findUnique({
+    where: { id },
+    include: { items: { orderBy: { sortOrder: "asc" } } },
+  });
+  return row ?? fallback;
 }
 
 export async function updateRow(
@@ -149,6 +206,7 @@ export async function updateRow(
   session: PortalSession
 ): Promise<unknown> {
   const delegate = delegateFor(db, module);
+  const items = Array.isArray(input.items) ? (input.items as LineItemInput[]) : null;
   const data = toWriteData(module, input, session, false);
 
   if (module.key === "clients" && session.clientId === id) {
@@ -165,7 +223,12 @@ export async function updateRow(
   }
 
   try {
-    return await delegate.update({ where: { id }, data });
+    const row = await delegate.update({ where: { id }, data });
+    if (items && LINE_MODULES[module.key]) {
+      await writeLines(db, module, id, items);
+      return withLines(db, module, id, row);
+    }
+    return row;
   } catch (error) {
     if (isRecordNotFound(error)) throw new ModuleError(404, "That row no longer exists.");
     if (isForeignKeyViolation(error)) {

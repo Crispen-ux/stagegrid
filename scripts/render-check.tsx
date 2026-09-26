@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PortalShell } from "@/components/dashboard/PortalShell";
 import { RequestsTab } from "@/components/dashboard/RequestsTab";
 import { OverviewTab } from "@/components/dashboard/OverviewTab";
+import { QuotesInvoicesTab } from "@/components/dashboard/QuotesInvoicesTab";
 import { mockPortalData } from "@/lib/portal-data";
 import { ACME_EMAIL, NORTHWIND_EMAIL } from "@/data/portal";
 import type { PortalAccountRow, PortalRequests, PortalViewer } from "@/types";
@@ -63,6 +64,26 @@ const dataAdmin = mockPortalData(admin);
 const dataStaff = mockPortalData(staff);
 const dataAcme = mockPortalData(acme);
 const dataNorthwind = mockPortalData(northwind);
+
+/** Database-mode Acme data with a real itemised breakdown on every row. */
+const granular = {
+  ...dataAcme,
+  source: "database" as const,
+  quotes: dataAcme.quotes.map((quote) => ({
+    ...quote,
+    items: [
+      { description: "PA system — L-Series line array", qty: 1, unitPrice: 14500, amount: 14500 },
+      { description: "Crew — 6 technicians", qty: 6, unitPrice: 1750, amount: 10500 },
+    ],
+  })),
+  invoices: dataAcme.invoices.map((invoice) => ({
+    ...invoice,
+    items: [
+      { description: "Equipment hire — 3 days", qty: 3, unitPrice: 18000, amount: 54000 },
+      { description: "Project management & technical design", qty: 1, unitPrice: 9000, amount: 9000 },
+    ],
+  })),
+};
 
 const checks: { label: string; html: string; contains?: string[]; excludes?: string[] }[] = [
   {
@@ -141,6 +162,32 @@ const checks: { label: string; html: string; contains?: string[]; excludes?: str
     label: "OverviewTab (admin)",
     html: renderToStaticMarkup(<OverviewTab viewer={admin} data={dataAdmin} />),
     contains: ["Corporate Product Launch", "Corporate Conference", "Asset Utilisation"],
+  },
+  {
+    label: "QuotesInvoicesTab (acme, itemised + PDF)",
+    html: renderToStaticMarkup(
+      <QuotesInvoicesTab viewer={acme} data={granular} canManage={false} accounts={accounts} />
+    ),
+    contains: [
+      "PA system — L-Series line array",
+      "Crew — 6 technicians",
+      "Equipment hire — 3 days",
+      "Subtotal (excl. VAT)",
+      "VAT @ 15%",
+      "Total (incl. VAT)",
+      "/api/quotes/",
+      "/api/invoices/",
+      ">PDF<",
+    ],
+    excludes: ["Single total — no line items"],
+  },
+  {
+    label: "QuotesInvoicesTab (admin manage)",
+    html: renderToStaticMarkup(
+      <QuotesInvoicesTab viewer={admin} data={dataAdmin} canManage accounts={accounts} />
+    ),
+    contains: ["Add quote", "Add invoice", ">PDF<", "Lines"],
+    excludes: [],
   },
 ];
 

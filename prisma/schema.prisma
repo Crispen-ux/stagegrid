@@ -132,10 +132,25 @@ model Quote {
   estimateTotal Int      @default(0)
   clientId      String?
   client        Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  items         QuoteItem[]
   created       DateTime @default(now())
   updated       DateTime @updatedAt
 
   @@index([clientId])
+}
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  quoteId     String
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  description String
+  qty         Int      @default(1)
+  unitPrice   Int      @default(0)
+  amount      Int      @default(0)
+  sortOrder   Int      @default(0)
+  created     DateTime @default(now())
+
+  @@index([quoteId])
 }
 
 model Invoice {
@@ -148,10 +163,25 @@ model Invoice {
   bookingRef String?
   clientId   String?
   client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  items      InvoiceItem[]
   created    DateTime  @default(now())
   updated    DateTime  @updatedAt
 
   @@index([clientId])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  qty         Int      @default(1)
+  unitPrice   Int      @default(0)
+  amount      Int      @default(0)
+  sortOrder   Int      @default(0)
+  created     DateTime @default(now())
+
+  @@index([invoiceId])
 }
 
 model CrewMember {

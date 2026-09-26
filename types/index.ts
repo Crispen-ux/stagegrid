@@ -244,6 +244,13 @@ export interface PortalBookingRow {
   clientId?: string | null;
 }
 
+export interface PortalLineItem {
+  description: string;
+  qty: number;
+  unitPrice: number;
+  amount: number;
+}
+
 export interface PortalQuoteRow {
   id: string;
   reference: string;
@@ -251,6 +258,7 @@ export interface PortalQuoteRow {
   estimateTotal: number;
   createdAt: string;
   clientId?: string | null;
+  items: PortalLineItem[];
 }
 
 export interface PortalInvoiceRow {
@@ -261,6 +269,7 @@ export interface PortalInvoiceRow {
   amount: number;
   dueDate: string;
   clientId?: string | null;
+  items: PortalLineItem[];
 }
 
 export interface PortalUpcomingRow {

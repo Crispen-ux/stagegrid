@@ -16,6 +16,7 @@ config({ path: path.join(__dirname, "..", ".env.local") });
 import { getDb } from "@/lib/db";
 import { equipment } from "@/data/equipment";
 import { bookings, crew, invoices, quotes, sampleAssets, activeDelivery, vehicles } from "@/data/portal";
+import type { RecommendedPackage } from "@/types";
 
 async function main() {
   const db = getDb();
@@ -176,17 +177,110 @@ async function main() {
     }
   }
 
-  const [products, rows, crewCount, fleet, assets, deliveries] = await Promise.all([
+  // ---- Line items: every seeded quote/invoice gets an itemised breakdown ----
+  const money = (total: number) => Math.round(total / 1.15); // stored totals are VAT-inclusive
+
+  const quoteLines = (total: number, pkg: RecommendedPackage) => {
+    const subtotal = money(total);
+    const shape: { description: string; weight: number; qty: number }[] = [
+      { description: `PA system — ${pkg.pa}`, weight: 0.24, qty: 1 },
+      { description: `Truss & rigging — ${pkg.truss}`, weight: 0.13, qty: 1 },
+      { description: `Stage — ${pkg.stage}`, weight: 0.15, qty: 1 },
+      { description: `Lighting — ${pkg.lighting}`, weight: 0.15, qty: 1 },
+      { description: `AV & screens — ${pkg.av}`, weight: 0.11, qty: 1 },
+      { description: `Crew — ${pkg.crewCount} technicians`, weight: 0.14, qty: Math.max(1, pkg.crewCount) },
+      { description: `Setup labour — ${pkg.setupHours} hours`, weight: 0.04, qty: Math.max(1, pkg.setupHours) },
+    ];
+    const rows = shape.map((line) => {
+      const unitPrice = Math.max(1, Math.round((subtotal * line.weight) / line.qty));
+      return { ...line, unitPrice, amount: unitPrice * line.qty };
+    });
+    const used = rows.reduce((sum, row) => sum + row.amount, 0);
+    const logistics = Math.max(0, subtotal - used);
+    rows.push({
+      description: `Logistics, transport & power (${pkg.powerRequirementKva} kVA generator)`,
+      weight: 0,
+      qty: 1,
+      unitPrice: logistics,
+      amount: logistics,
+    });
+    // keep the breakdown exactly equal to the stored total
+    const drift = subtotal - rows.reduce((sum, row) => sum + row.amount, 0);
+    if (drift !== 0 && rows.length > 0) {
+      rows[0].unitPrice = Math.max(0, rows[0].unitPrice + drift);
+      rows[0].amount = rows[0].unitPrice * rows[0].qty;
+    }
+    return rows.map(({ description, qty, unitPrice, amount }) => ({ description, qty, unitPrice, amount }));
+  };
+
+  const invoiceLines = (total: number, eventName: string) => {
+    const subtotal = money(total);
+    const shape: { description: string; weight: number; qty: number }[] = [
+      { description: "Equipment hire — 3 days", weight: 0.55, qty: 3 },
+      { description: "Crew & technicians on site", weight: 0.25, qty: 4 },
+      { description: `Transport & logistics — ${eventName}`, weight: 0.12, qty: 1 },
+    ];
+    const rows = shape.map((line) => {
+      const unitPrice = Math.max(1, Math.round((subtotal * line.weight) / line.qty));
+      return { ...line, unitPrice, amount: unitPrice * line.qty };
+    });
+    const used = rows.reduce((sum, row) => sum + row.amount, 0);
+    const management = Math.max(0, subtotal - used);
+    rows.push({
+      description: "Project management & technical design",
+      weight: 0,
+      qty: 1,
+      unitPrice: management,
+      amount: management,
+    });
+    const drift = subtotal - rows.reduce((sum, row) => sum + row.amount, 0);
+    if (drift !== 0 && rows.length > 0) {
+      rows[rows.length - 1].unitPrice = Math.max(0, rows[rows.length - 1].unitPrice + drift);
+      rows[rows.length - 1].amount = rows[rows.length - 1].unitPrice * rows[rows.length - 1].qty;
+    }
+    return rows.map(({ description, qty, unitPrice, amount }) => ({ description, qty, unitPrice, amount }));
+  };
+
+  let quoteItems = 0;
+  let invoiceItems = 0;
+  const quoteRows = await db.quote.findMany({ include: { items: { orderBy: { sortOrder: "asc" } } } });
+  for (const row of quoteRows) {
+    if (row.items.length > 0) continue;
+    const mock = quotes.find((quote) => quote.id === row.reference);
+    if (!mock) continue;
+    const lines = quoteLines(row.estimateTotal, mock.recommendedPackage);
+    await db.quoteItem.createMany({
+      data: lines.map((line, index) => ({ ...line, quoteId: row.id, sortOrder: index })),
+    });
+    quoteItems += lines.length;
+  }
+
+  const invoiceRows = await db.invoice.findMany({ include: { items: { orderBy: { sortOrder: "asc" } } } });
+  for (const row of invoiceRows) {
+    if (row.items.length > 0) continue;
+    const mock = invoices.find((invoice) => invoice.id === row.reference);
+    if (!mock) continue;
+    const lines = invoiceLines(row.amount, row.eventName);
+    await db.invoiceItem.createMany({
+      data: lines.map((line, index) => ({ ...line, invoiceId: row.id, sortOrder: index })),
+    });
+    invoiceItems += lines.length;
+  }
+
+  const [products, rows, crewCount, fleet, assets, deliveries, quotesTotal, invoicesTotal] = await Promise.all([
     db.product.count(),
     db.booking.count(),
     db.crewMember.count(),
     db.vehicle.count(),
     db.asset.count(),
     db.delivery.count(),
+    db.quoteItem.count(),
+    db.invoiceItem.count(),
   ]);
   console.log(
     `Portal data seeded — ${created} created, ${skipped} already present.\n` +
-      `  products=${products} bookings=${rows} crew=${crewCount} vehicles=${fleet} assets=${assets} deliveries=${deliveries}`
+      `  products=${products} bookings=${rows} crew=${crewCount} vehicles=${fleet} assets=${assets} deliveries=${deliveries}\n` +
+      `  line items: +${quoteItems} quote / +${invoiceItems} invoice (totals quoteItems=${quotesTotal} invoiceItems=${invoicesTotal})`
   );
 }
 

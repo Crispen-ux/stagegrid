@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db";
 import { jsonSafe, parseModuleInput } from "@/lib/admin-schema";
-import { createRow, delegateFor, ModuleError, moduleOr404 } from "@/lib/admin-db";
+import { createRow, listRows, ModuleError, moduleOr404 } from "@/lib/admin-db";
 import { sessionFromRequest } from "@/lib/portal-auth";
 import { created, failure, ok, readJson } from "@/lib/server";
 
@@ -40,7 +40,7 @@ export async function GET(request: Request, { params }: { params: { module: stri
   if (!db) return failure(503, "Management is unavailable — no database is configured.");
 
   try {
-    const rows = await delegateFor(db, moduleDef).findMany();
+    const rows = await listRows(db, moduleDef);
     return ok({ ok: true, rows: rows.map(jsonSafe) });
   } catch (error) {
     return errorResponse(error);

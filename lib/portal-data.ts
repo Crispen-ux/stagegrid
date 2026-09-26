@@ -113,6 +113,7 @@ export function mockPortalData(viewer: PortalViewer): PortalData {
       estimateTotal: quote.recommendedPackage.estimatedTotal,
       createdAt: quote.createdAt,
       clientId: null,
+      items: [],
     })),
     invoices: scope.invoices.map((invoice) => ({
       id: invoice.id,
@@ -122,6 +123,7 @@ export function mockPortalData(viewer: PortalViewer): PortalData {
       amount: invoice.amount,
       dueDate: invoice.dueDate,
       clientId: null,
+      items: [],
     })),
     upcomingEvents: scope.upcomingEvents.map((event) => ({
       name: event.name,
@@ -197,8 +199,16 @@ export async function loadPortalData(viewer: PortalViewer): Promise<PortalData> 
 
   const [bookings, quotes, invoices, deliveries, crew, vehicles, products] = await Promise.all([
     db.booking.findMany({ where: clientScope, orderBy: { updated: "desc" } }),
-    db.quote.findMany({ where: clientScope, orderBy: { created: "desc" } }),
-    db.invoice.findMany({ where: clientScope, orderBy: { created: "desc" } }),
+    db.quote.findMany({
+      where: clientScope,
+      orderBy: { created: "desc" },
+      include: { items: { orderBy: { sortOrder: "asc" } } },
+    }),
+    db.invoice.findMany({
+      where: clientScope,
+      orderBy: { created: "desc" },
+      include: { items: { orderBy: { sortOrder: "asc" } } },
+    }),
     db.delivery.findMany({ where: clientScope, orderBy: { updated: "desc" } }),
     isInternal ? db.crewMember.findMany({ orderBy: { name: "asc" } }) : Promise.resolve([]),
     isInternal ? db.vehicle.findMany({ orderBy: { label: "asc" } }) : Promise.resolve([]),
@@ -252,6 +262,12 @@ export async function loadPortalData(viewer: PortalViewer): Promise<PortalData> 
       estimateTotal: quote.estimateTotal,
       createdAt: dateKey(quote.created),
       clientId: quote.clientId,
+      items: quote.items.map((line) => ({
+        description: line.description,
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        amount: line.amount,
+      })),
     })),
     invoices: invoices.map((invoice) => ({
       id: invoice.id,
@@ -261,6 +277,12 @@ export async function loadPortalData(viewer: PortalViewer): Promise<PortalData> 
       amount: invoice.amount,
       dueDate: dateKey(invoice.dueDate),
       clientId: invoice.clientId,
+      items: invoice.items.map((line) => ({
+        description: line.description,
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        amount: line.amount,
+      })),
     })),
     upcomingEvents: bookingRows
       .filter((booking) => ACTIVE_BOOKING_STATUSES.includes(booking.status))

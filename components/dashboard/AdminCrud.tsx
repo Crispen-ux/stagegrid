@@ -3,12 +3,39 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ADMIN_MODULES, type AdminField, type AdminModule } from "@/lib/admin-schema";
+import { rand } from "@/lib/breakdown";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import type { PortalAccountRow, PortalProductRow } from "@/types";
 
 type Row = Record<string, unknown>;
+
+/** Editable state of one breakdown row (amounts are always qty × unit price). */
+interface LineDraft {
+  description: string;
+  qty: string;
+  unitPrice: string;
+}
+
+const lineAmount = (line: LineDraft): number => {
+  const qty = Number(line.qty);
+  const unitPrice = Number(line.unitPrice);
+  if (!Number.isFinite(qty) || !Number.isFinite(unitPrice)) return 0;
+  return Math.round(qty) * Math.round(unitPrice);
+};
+
+/**
+ * `useRouter()` throws outside the app router (server-render smoke tests), where
+ * a refresh is meaningless anyway — fall back to a no-op so the panel still renders.
+ */
+function useSafeRouter() {
+  try {
+    return useRouter();
+  } catch {
+    return { refresh: () => {}, replace: () => {}, push: () => {}, back: () => {}, forward: () => {}, prefetch: () => {} } as ReturnType<typeof useRouter>;
+  }
+}
 
 export interface AdminCrudProps {
   moduleKey: string;
@@ -45,6 +72,7 @@ const dateFmt = (value: unknown): string => {
 function initialValues(moduleDef: AdminModule): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {};
   for (const field of moduleDef.fields) {
+    if (field.type === "lines") continue;
     values[field.name] = field.type === "toggle" ? false : "";
     if (field.type === "select" && field.options?.[0] && field.required) {
       values[field.name] = field.options[0].value;
@@ -56,6 +84,7 @@ function initialValues(moduleDef: AdminModule): Record<string, string | boolean>
 function valuesFromRow(moduleDef: AdminModule, row: Row): Record<string, string | boolean> {
   const values = initialValues(moduleDef);
   for (const field of moduleDef.fields) {
+    if (field.type === "lines") continue;
     const raw = row[field.name];
     if (field.type === "toggle") {
       values[field.name] = raw === true;
@@ -73,12 +102,28 @@ function valuesFromRow(moduleDef: AdminModule, row: Row): Record<string, string 
 function payload(moduleDef: AdminModule, values: Record<string, string | boolean>): Row {
   const out: Row = {};
   for (const field of moduleDef.fields) {
+    if (field.type === "lines") continue; // sent separately as `items`
     const value = values[field.name];
     if (field.type === "toggle") out[field.name] = value === true;
     else if (field.type === "number") out[field.name] = value === "" ? "" : Number(value);
     else out[field.name] = str(value);
   }
   return out;
+}
+
+function linesFromRow(moduleDef: AdminModule, row: Row): LineDraft[] {
+  const field = moduleDef.fields.find((candidate) => candidate.type === "lines");
+  if (!field) return [];
+  const raw = row[field.name];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    const item = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+    return {
+      description: str(item.description),
+      qty: item.qty === null || item.qty === undefined ? "1" : String(item.qty),
+      unitPrice: item.unitPrice === null || item.unitPrice === undefined ? "0" : String(item.unitPrice),
+    };
+  });
 }
 
 function cellValue(row: Row, name: string): unknown {
@@ -95,10 +140,11 @@ export function AdminCrud({
   allowDelete = true,
 }: AdminCrudProps) {
   const moduleDef = ADMIN_MODULES[moduleKey];
-  const router = useRouter();
+  const router = useSafeRouter();
   const [mode, setMode] = useState<"closed" | "create" | "edit">("closed");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string | boolean>>({});
+  const [lines, setLines] = useState<LineDraft[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,6 +154,7 @@ export function AdminCrud({
 
   const startCreate = () => {
     setValues(initialValues(moduleDef));
+    setLines([]);
     setErrors({});
     setNotice(null);
     setEditingId(null);
@@ -116,6 +163,7 @@ export function AdminCrud({
 
   const startEdit = (row: Row) => {
     setValues(valuesFromRow(moduleDef, row));
+    setLines(linesFromRow(moduleDef, row));
     setErrors({});
     setNotice(null);
     setEditingId(str(row.id));
@@ -129,18 +177,32 @@ export function AdminCrud({
     setEditingId(null);
   };
 
+  const updateLine = (index: number, patch: Partial<LineDraft>) =>
+    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setErrors({});
     setNotice(null);
-    const body = JSON.stringify(payload(moduleDef, values));
+    const body: Row = payload(moduleDef, values);
+    if (moduleDef.fields.some((field) => field.type === "lines")) {
+      body.items = lines
+        .filter((line) => line.description.trim() !== "")
+        .map((line) => ({
+          description: line.description.trim(),
+          qty: Number(line.qty) || 1,
+          unitPrice: Number(line.unitPrice) || 0,
+          amount: lineAmount(line),
+        }));
+    }
+    const json = JSON.stringify(body);
     const url = mode === "create" ? `/api/admin/${moduleKey}` : `/api/admin/${moduleKey}/${editingId}`;
     try {
       const response = await fetch(url, {
         method: mode === "create" ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
-        body,
+        body: json,
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -204,6 +266,12 @@ export function AdminCrud({
       }
       case "badge":
         return <Badge variant={badgeVariant(str(raw))}>{str(raw) || "—"}</Badge>;
+      case "count":
+        return Array.isArray(raw) ? (
+          `${raw.length} ${raw.length === 1 ? "line" : "lines"}`
+        ) : (
+          <span className="text-text-faint">—</span>
+        );
       default:
         return raw === null || raw === undefined || raw === "" ? <span className="text-text-faint">—</span> : str(raw);
     }
@@ -232,7 +300,10 @@ export function AdminCrud({
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {moduleDef.fields.map((field) => (
-              <div key={field.name} className={field.type === "textarea" ? "sm:col-span-2" : ""}>
+              <div
+                key={field.name}
+                className={field.type === "textarea" || field.type === "lines" ? "sm:col-span-2" : ""}
+              >
                 <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-text-faint">
                   {field.label}
                   {field.required && <span className="text-accent"> *</span>}
@@ -263,6 +334,69 @@ export function AdminCrud({
                       errors[field.name] ? "border-warn" : "border-border focus:border-accent"
                     }`}
                   />
+                ) : field.type === "lines" ? (
+                  <div className="rounded border border-border bg-bg p-3">
+                    <div className="flex flex-col gap-2">
+                      {lines.length === 0 && (
+                        <p className="py-1 text-[12.5px] text-text-faint">
+                          No line items yet — add the first row of the breakdown.
+                        </p>
+                      )}
+                      {lines.map((line, index) => (
+                        <div key={index} className="flex flex-wrap items-center gap-2">
+                          <input
+                            value={line.description}
+                            onChange={(e) => updateLine(index, { description: e.target.value })}
+                            placeholder="e.g. PA system — L-Series line array"
+                            aria-label={`Line ${index + 1} description`}
+                            className="min-w-[200px] flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition-colors focus:border-accent"
+                          />
+                          <input
+                            type="number"
+                            min={1}
+                            value={line.qty}
+                            onChange={(e) => updateLine(index, { qty: e.target.value })}
+                            aria-label={`Line ${index + 1} quantity`}
+                            className="w-16 rounded border border-border bg-surface px-2 py-2 text-right text-sm text-text outline-none transition-colors focus:border-accent"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            value={line.unitPrice}
+                            onChange={(e) => updateLine(index, { unitPrice: e.target.value })}
+                            aria-label={`Line ${index + 1} unit price`}
+                            className="w-24 rounded border border-border bg-surface px-2 py-2 text-right text-sm text-text outline-none transition-colors focus:border-accent"
+                          />
+                          <span className="w-24 text-right text-[13px] text-text-dim">{rand(lineAmount(line))}</span>
+                          <button
+                            type="button"
+                            className="px-1 text-[12.5px] text-text-faint transition hover:text-warn"
+                            onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
+                            aria-label={`Remove line ${index + 1}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2.5">
+                      <button
+                        type="button"
+                        className="text-[12.5px] font-semibold text-accent underline-offset-4 hover:underline"
+                        onClick={() => setLines((current) => [...current, { description: "", qty: "1", unitPrice: "0" }])}
+                      >
+                        + Add line
+                      </button>
+                      {lines.length > 0 && (
+                        <span className="text-[12.5px] text-text-faint">
+                          Subtotal {rand(lines.reduce((sum, line) => sum + lineAmount(line), 0))} · incl. VAT{" "}
+                          {rand(
+                            Math.round(lines.reduce((sum, line) => sum + lineAmount(line), 0) * 1.15)
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 ) : field.type === "toggle" ? (
                   <label className="flex items-center gap-2 py-1.5 text-[13.5px] text-text-dim">
                     <input
@@ -317,7 +451,9 @@ export function AdminCrud({
                     {column.label}
                   </th>
                 ))}
-                {(allowCreate || allowDelete) && <th className="px-5 py-3 font-medium">Actions</th>}
+                {(allowCreate || allowDelete || moduleDef.pdfPath) && (
+                  <th className="px-5 py-3 font-medium">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -328,7 +464,7 @@ export function AdminCrud({
                       {renderCell(row, column)}
                     </td>
                   ))}
-                  {(allowCreate || allowDelete) && (
+                  {(allowCreate || allowDelete || moduleDef.pdfPath) && (
                     <td className="px-5 py-3.5">
                       {confirmingId === str(row.id) ? (
                         <span className="flex items-center gap-2 text-[12.5px]">
@@ -342,6 +478,16 @@ export function AdminCrud({
                         </span>
                       ) : (
                         <span className="flex gap-3 text-[12.5px]">
+                          {moduleDef.pdfPath && (
+                            <a
+                              href={moduleDef.pdfPath.replace("[id]", str(row.id))}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-text-dim underline-offset-4 hover:text-accent hover:underline"
+                            >
+                              PDF
+                            </a>
+                          )}
                           {allowCreate && moduleDef.creatable !== false && (
                             <button
                               type="button"

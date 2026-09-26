@@ -315,6 +315,54 @@ dashboard tab, backed by the same module definitions the API validates with.
   rules (duplicate email `409`, missing/short password `400`, self-demote/self-delete `400`), a staff account
   signing in but blocked from the admin API, and page checks for admin/staff/client/anon.
 
+## Phase 13 — itemised quotes & invoices + a PDF engine
+
+Quotes and invoices stopped being a single number: each one now carries a line-item breakdown that shows in
+the portal, is editable in the admin forms and prints on a generated PDF.
+
+**Data (`prisma/schema.prisma`, migration `20260926030000_quote_invoice_items`)**
+
+- `QuoteItem` / `InvoiceItem` — description, `qty`, `unitPrice`, `amount` (always qty × unit price),
+  `sortOrder`, cascade-deleted with their parent.
+- `scripts/seed-portal.ts` fills them in for every seeded row (insert-only): quotes get PA / truss / stage /
+  lighting / AV / crew / setup / logistics lines derived from the recommended package, invoices get equipment
+  hire, crew, transport and project management — each split so the lines sum to the ex-VAT subtotal of the
+  stored VAT-inclusive total. Acme's two quotes and two invoices are the most detailed examples.
+- `lib/breakdown.ts` holds the shared money maths: `breakdown(total, items)` → subtotal / VAT @ 15% / total,
+  plus `rand()` South African formatting (`R 12 345`).
+
+**API**
+
+- `lib/admin-schema.ts` gained a `lines` field type, a `count` column render, `pdfPath` on a module, and
+  `items` fields on quotes/invoices. `parseModuleInput()` validates the whole list at once (description
+  required, qty ≥ 1, unit price ≥ 0) and recomputes `amount` server-side — the client never dictates money.
+- `lib/admin-db.ts` writes breakdowns: `listRows()` includes items in order, `createRow` inserts them,
+  `updateRow` replaces the list (items always arrive as the complete set), `deleteRow` relies on the cascade.
+  Rows with zero items remain valid and fall back to a single total.
+- **`GET /api/quotes/[id]/pdf`** and **`GET /api/invoices/[id]/pdf`** — `pdf-lib` (no font files, safe on
+  Vercel serverless) renders an A4 document: dark STAGEGRID masthead, client meta block, itemised table with
+  wrapped descriptions, subtotal / VAT / total block, footnotes (validity, booking reference, terms) and page
+  numbers. Access is `401` without a session, `404` for a client who does not own the row (no leaking), `503`
+  without a database; admins and staff can read any.
+
+**UI**
+
+- Client view (`QuotesInvoicesTab`): every quote and invoice is a card with its line-item table, a
+  subtotal/VAT/total strip and a **PDF** button that opens the generated document; rows without items say so
+  explicitly instead of pretending to a breakdown.
+- Admin: `AdminCrud` renders the `lines` field as an inline editor (add/remove rows, live qty × price,
+  running subtotal and incl.-VAT total), shows a `Lines` column, and adds a **PDF** action to every
+  quote/invoice row.
+
+**Verification**
+
+- `tsc --noEmit`, `next lint`, `next build` and `npm run check:portal` clean — the render checks now include
+  the itemised client view and the admin manage panel (10 checks).
+- Local and production runs: quote/invoice lists carry their items, create-with-items → `201`, replacing the
+  list → `200` with recomputed amounts, invalid line → `400`, delete → `200`; PDF endpoints answer `200` with
+  a real `%PDF` for admin and the owning client, `404` for a different client and unknown ids, `401` anon;
+  Kim's portal page shows the breakdown, the VAT strip and the PDF buttons.
+
 ## What's in Phase 1
 
 - **Design system**: dark industrial tokens in `tailwind.config.ts` / `app/globals.css`, matching the earlier
@@ -335,7 +383,7 @@ dashboard tab, backed by the same module definitions the API validates with.
 - Email delivery (approval notices, sending quotes/invoices) — access is requested and activated in-portal.
 - Payments/settlement against invoices, and an availability calendar that decrements stock while a booking
   holds equipment.
-- PDF export of quotes and invoices, a CSV bulk import, and an audit trail of admin edits.
+- A CSV bulk import and an audit trail of admin edits.
 - The asset movement scan flow (Picked → Loaded → Returned) — the lifecycle statuses exist but are set by hand
   in the asset register.
 

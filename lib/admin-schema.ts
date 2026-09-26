@@ -14,7 +14,16 @@ export type AdminFieldType =
   | "date"
   | "textarea"
   | "toggle"
-  | "ref";
+  | "ref"
+  | "lines";
+
+/** One editable row of a quote/invoice breakdown. */
+export interface LineItemInput {
+  description: string;
+  qty: number;
+  unitPrice: number;
+  amount: number;
+}
 
 export interface AdminField {
   name: string;
@@ -32,7 +41,7 @@ export interface AdminField {
   writeOnly?: boolean;
 }
 
-export type AdminColumnRender = "money" | "date" | "bool" | "badge" | "client" | "truncate";
+export type AdminColumnRender = "money" | "date" | "bool" | "badge" | "client" | "truncate" | "count";
 
 export interface AdminColumn {
   name: string;
@@ -52,6 +61,8 @@ export interface AdminModule {
   uniqueField?: string;
   /** POST is not allowed (rows only arrive from public forms). */
   creatable?: boolean;
+  /** Row action that opens the generated PDF for this id. */
+  pdfPath?: string;
 }
 
 const CLIENT_ROLES = [
@@ -207,10 +218,12 @@ export const ADMIN_MODULES: Record<string, AdminModule> = {
     description: "Quoted packages with their status and estimate.",
     reference: { field: "reference", prefix: "SG-QT" },
     uniqueField: "reference",
+    pdfPath: "/api/quotes/[id]/pdf",
     columns: [
       { name: "reference", label: "Reference" },
       { name: "status", label: "Status", render: "badge" },
       { name: "estimateTotal", label: "Estimate", render: "money" },
+      { name: "items", label: "Lines", render: "count" },
       { name: "createdAt", label: "Created", render: "date" },
       { name: "clientId", label: "Client", render: "client" },
     ],
@@ -218,6 +231,12 @@ export const ADMIN_MODULES: Record<string, AdminModule> = {
       { name: "reference", label: "Reference", type: "text", placeholder: "Auto-generated when empty" },
       { name: "status", label: "Status", type: "select", required: true, options: QUOTE_STATUSES },
       { name: "estimateTotal", label: "Estimate (ZAR)", type: "number", required: true, min: 0 },
+      {
+        name: "items",
+        label: "Line items",
+        type: "lines",
+        help: "The breakdown shown in the portal and printed on the PDF. Leave empty to show a single total.",
+      },
       ACCOUNT_REF,
     ],
   },
@@ -228,10 +247,12 @@ export const ADMIN_MODULES: Record<string, AdminModule> = {
     description: "Billing per event, tracked against due dates.",
     reference: { field: "reference", prefix: "inv" },
     uniqueField: "reference",
+    pdfPath: "/api/invoices/[id]/pdf",
     columns: [
       { name: "reference", label: "Reference" },
       { name: "eventName", label: "Event" },
       { name: "amount", label: "Amount", render: "money" },
+      { name: "items", label: "Lines", render: "count" },
       { name: "status", label: "Status", render: "badge" },
       { name: "dueDate", label: "Due", render: "date" },
       { name: "clientId", label: "Client", render: "client" },
@@ -243,6 +264,12 @@ export const ADMIN_MODULES: Record<string, AdminModule> = {
       { name: "status", label: "Status", type: "select", required: true, options: INVOICE_STATUSES },
       { name: "dueDate", label: "Due date", type: "date" },
       { name: "bookingRef", label: "Booking reference", type: "text", placeholder: "bk-1001" },
+      {
+        name: "items",
+        label: "Line items",
+        type: "lines",
+        help: "The breakdown shown in the portal and printed on the PDF. Leave empty to show a single total.",
+      },
       ACCOUNT_REF,
     ],
   },
@@ -410,7 +437,7 @@ export function parseModuleInput(
     const provided = Object.prototype.hasOwnProperty.call(input, field.name);
     if (!provided) {
       if (partial) continue;
-      if (field.type === "password" || field.type === "date" || field.type === "textarea" || field.type === "ref") {
+      if (field.type === "password" || field.type === "date" || field.type === "textarea" || field.type === "ref" || field.type === "lines") {
         // optional on create
       } else if (field.type === "toggle") {
         data[field.name] = false;
@@ -460,6 +487,50 @@ export function parseModuleInput(
       case "date":
         data[field.name] = toIsoOrNull(raw);
         break;
+      case "lines": {
+        if (raw === null || raw === undefined) {
+          data[field.name] = [];
+          break;
+        }
+        if (!Array.isArray(raw)) {
+          errors[field.name] = `${field.label} must be a list of rows.`;
+          break;
+        }
+        const items: LineItemInput[] = [];
+        let message: string | null = null;
+        for (const [index, entry] of raw.entries()) {
+          const row = entry && typeof entry === "object" && !Array.isArray(entry)
+            ? (entry as Record<string, unknown>)
+            : {};
+          const description = String(row.description ?? "").trim().slice(0, MAX_TEXT);
+          if (!description) {
+            message = `Line ${index + 1} needs a description.`;
+            break;
+          }
+          const qty = Number(String(row.qty ?? "1").trim());
+          const unitPrice = Number(String(row.unitPrice ?? "0").trim());
+          if (!Number.isFinite(qty) || Math.round(qty) !== qty || qty < 1) {
+            message = `Line ${index + 1}: quantity must be a whole number of 1 or more.`;
+            break;
+          }
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+            message = `Line ${index + 1}: unit price must be 0 or more.`;
+            break;
+          }
+          items.push({
+            description,
+            qty,
+            unitPrice: Math.round(unitPrice),
+            amount: Math.round(qty * Math.round(unitPrice)),
+          });
+        }
+        if (message) {
+          errors[field.name] = message;
+          break;
+        }
+        data[field.name] = items;
+        break;
+      }
       case "ref": {
         const value = String(raw ?? "").trim();
         if (field.required && !value) {
