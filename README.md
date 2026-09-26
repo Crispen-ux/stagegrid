@@ -146,6 +146,41 @@ classes — converting those is straightforward but wasn't done here to keep thi
 Radix-backed `Dialog`/`Sheet` for the basket (currently a sidebar panel, not a slide-over); and real brand
 photography in place of the Picsum placeholders.
 
+## Phase 9 — real APIs, Prisma + Postgres, Vercel
+
+The four submission flows that were client-side only are now backed by route handlers, deployed as
+serverless functions on Vercel with a Prisma Postgres database attached to the project:
+
+- **`POST /api/contact`** — Contact form (`components/marketing/ContactForm.tsx`).
+- **`POST /api/quotes`** — Request Quote form (`components/marketing/RequestQuoteForm.tsx`); returns a
+  server-issued `SG-Q-…` reference instead of the old client-side random one.
+- **`POST /api/builder-quotes`** — Event Builder "Request Technical Quote" (`BuilderShell.tsx`, previously a
+  button with no handler). The server re-validates the configuration and **recomputes** the recommendation and
+  basket total from `lib/calculations.ts` + `data/equipment.ts`, so the stored `estimateTotal` never depends on
+  what the browser claimed.
+- **`POST /api/builder-configs`** + **`GET /api/builder-configs/[ref]`** — "Save Configuration" and load it
+  back by reference, so a builder configuration survives beyond the session.
+
+Infrastructure:
+
+- **Prisma 7** (`prisma/schema.prisma`): `ContactMessage`, `QuoteRequest`, `BuilderQuote`, `BuilderConfig`,
+  each with a unique human-readable reference. The client is generated to `lib/generated/prisma` (gitignored)
+  by `prisma generate`, which runs in both `postinstall` and `build`, and connects through `@prisma/adapter-pg`.
+- **Graceful fallback** (`lib/db.ts`): with no `DATABASE_URL` / `POSTGRES_URL` / `PRISMA_DATABASE_URL` set,
+  `getDb()` returns `null` and every endpoint logs the payload and answers with a synthetic id plus
+  `mocked: true` — all forms keep working on a fresh clone. Set the variable and the identical code path
+  persists for real.
+- **Validation is enforced twice**: browser-side for UX (`ContactForm`, `RequestQuoteForm`) and again on the
+  server (`lib/server.ts`, `lib/config-validation.ts`), because the client copy is not a contract.
+- **Migration**: `prisma/migrations/20260926000000_init` — 4 tables, unique indexes on the references.
+  Apply with `npm run db:migrate`.
+- **Deployed**: `lene6/stagegrid` on Vercel, Prisma Postgres **free** tier (region `fra1`), with
+  `DATABASE_URL` / `POSTGRES_URL` / `PRISMA_DATABASE_URL` set for Production, Preview and Development.
+  `vercel.json` pins `buildCommand` to `npm run build` so `prisma generate` runs on every build.
+- Verified: `tsc --noEmit`, `eslint` and `next build` clean (**28 routes**); all endpoints exercised against
+  the production alias — writes return `mocked: false` and land in Postgres, `GET /api/builder-configs/[ref]`
+  round-trips a saved configuration, and validation errors come back as `400` with field-level messages.
+
 ## What's in Phase 1
 
 - **Design system**: dark industrial tokens in `tailwind.config.ts` / `app/globals.css`, matching the earlier
@@ -174,10 +209,13 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. `npm run build` produces a production build (this requires normal internet access
-to fetch Inter and Space Grotesk from Google Fonts at build time via `next/font/google` — this was verified to
-build cleanly, just not inside the sandbox that authored it, which has a restricted allowlist that excludes
-fonts.googleapis.com).
+Open http://localhost:3000. Without a `DATABASE_URL` the site runs in **mock mode**: every form still submits
+and reports success, and payloads are logged to the server console instead of being stored. To persist locally,
+copy `.env.example` to `.env`, point `DATABASE_URL` at a Postgres instance and run `npm run db:migrate` once.
+
+`npm run build` produces a production build (this requires normal internet access to fetch Inter and Space
+Grotesk from Google Fonts at build time via `next/font/google`, and runs `prisma generate` first). Deployed
+environment variables live on Vercel — pull them with `npx vercel env pull`.
 
 ## Notes
 

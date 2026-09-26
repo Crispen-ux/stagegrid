@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ContactMessage {
+  id      String  @id @default(cuid())
+  name    String
+  company String?
+  email   String
+  phone   String?
+  message String  @db.Text
+  handled Boolean @default(false)
+  created DateTime @default(now())
+}
+
+model QuoteRequest {
+  id         String    @id @default(cuid())
+  reference  String    @unique
+  eventType  String
+  guestCount Int
+  eventDate  DateTime? @db.Date
+  venue      String?
+  name       String
+  email      String
+  notes      String?   @db.Text
+  status     String    @default("new")
+  created    DateTime  @default(now())
+}
+
+model BuilderQuote {
+  id            String   @id @default(cuid())
+  reference     String   @unique
+  configuration Json
+  recommendation Json
+  basket        Json
+  estimateTotal Int
+  status        String   @default("new")
+  created       DateTime @default(now())
+}
+
+model BuilderConfig {
+  id            String   @id @default(cuid())
+  reference     String   @unique
+  label         String?
+  configuration Json
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
+}

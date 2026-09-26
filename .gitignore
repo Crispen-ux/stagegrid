@@ -1,6 +1,28 @@
 node_modules
 .next
 out
-.env*.local
+.env
+.env.*
+!.env.example
+.vercel
 *.log
 .DS_Store
+
+# Prisma
+lib/generated
+
+# Agent skills installed by Prisma/Vercel CLIs
+.agents
+.claude
+.windsurf
+.cursor
+skills-lock.json
+
+# TypeScript
+tsconfig.tsbuildinfo
+
+# Vercel
+.vercel
+.env*
+!.env.example
+

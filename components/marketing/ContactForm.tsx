@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { submitJson } from "@/lib/api";
 
 interface FormState {
   name: string;
@@ -18,6 +19,8 @@ export function ContactForm() {
   const [form, setForm] = useState<FormState>(initial);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -32,11 +35,22 @@ export function ContactForm() {
     return Object.keys(next).length === 0;
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    // No backend in this prototype — this simulates a successful submission.
-    setSubmitted(true);
+    setSending(true);
+    setFailure(null);
+    const result = await submitJson("/api/contact", form);
+    setSending(false);
+    if (result.ok) {
+      setSubmitted(true);
+      return;
+    }
+    if (result.errors) {
+      setErrors(result.errors as Partial<Record<keyof FormState, string>>);
+      return;
+    }
+    setFailure(result.error ?? "Something went wrong. Please try again.");
   }
 
   if (submitted) {
@@ -82,8 +96,11 @@ export function ContactForm() {
         />
         {errors.message && <p className="mt-1.5 text-[12px] text-warn">{errors.message}</p>}
       </div>
-      <Button type="submit" className="self-start" size="lg">
-        Send Message
+      {failure && (
+        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2.5 text-[13px] text-warn">{failure}</p>
+      )}
+      <Button type="submit" className="self-start" size="lg" disabled={sending}>
+        {sending ? "Sending…" : "Send Message"}
       </Button>
     </form>
   );

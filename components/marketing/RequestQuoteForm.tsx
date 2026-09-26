@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { submitJson } from "@/lib/api";
 
 interface FormState {
   eventType: string;
@@ -26,14 +27,12 @@ const initial: FormState = {
   notes: "",
 };
 
-function reference() {
-  return "SG-" + Math.random().toString(36).slice(2, 8).toUpperCase();
-}
-
 export function RequestQuoteForm() {
   const [form, setForm] = useState<FormState>(initial);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [ref, setRef] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -48,10 +47,25 @@ export function RequestQuoteForm() {
     return Object.keys(next).length === 0;
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    setRef(reference());
+    setSending(true);
+    setFailure(null);
+    const result = await submitJson<{ reference?: string }>("/api/quotes", {
+      ...form,
+      guestCount: Number(form.guestCount),
+    });
+    setSending(false);
+    if (result.ok && result.data.reference) {
+      setRef(result.data.reference);
+      return;
+    }
+    if (!result.ok && result.errors) {
+      setErrors(result.errors as Partial<Record<keyof FormState, string>>);
+      return;
+    }
+    setFailure(result.ok ? "Quote request could not be referenced. Please try again." : (result.error ?? "Something went wrong. Please try again."));
   }
 
   if (ref) {
@@ -119,8 +133,11 @@ export function RequestQuoteForm() {
           className="w-full rounded border border-border bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent"
         />
       </div>
-      <Button type="submit" className="self-start" size="lg">
-        Request Technical Quote
+      {failure && (
+        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2.5 text-[13px] text-warn">{failure}</p>
+      )}
+      <Button type="submit" className="self-start" size="lg" disabled={sending}>
+        {sending ? "Sending…" : "Request Technical Quote"}
       </Button>
     </form>
   );

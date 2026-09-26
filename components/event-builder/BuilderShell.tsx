@@ -6,9 +6,25 @@ import { AnimatePresence, motion } from "framer-motion";
 import { defaultConfiguration, calculateRecommendedPackage } from "@/lib/calculations";
 import type { EventConfiguration } from "@/types";
 import { useBasket } from "@/lib/basket-context";
+import { fetchJson, submitJson } from "@/lib/api";
 import { Schematic } from "./Schematic";
 import { RecommendationPanel } from "./RecommendationPanel";
 import { BasketMiniList } from "@/components/equipment/BasketMiniList";
+
+type Notice = { kind: "ok" | "error"; text: string } | null;
+type Action = "idle" | "quote" | "save" | "load";
+
+interface ReviewActions {
+  action: Action;
+  notice: Notice;
+  quoteRef: string | null;
+  savedRef: string | null;
+  loadValue: string;
+  onLoadValue: (value: string) => void;
+  onRequestQuote: () => void;
+  onSave: () => void;
+  onLoad: () => void;
+}
 
 const steps = [
   { key: "type", title: "Event Type" },
@@ -30,9 +46,104 @@ export function BuilderShell() {
   const step = steps[current];
   const basket = useBasket();
   const combinedTotal = pkg.estimatedTotal + basket.total;
+  const [action, setAction] = useState<Action>("idle");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [quoteRef, setQuoteRef] = useState<string | null>(null);
+  const [savedRef, setSavedRef] = useState<string | null>(null);
+  const [loadValue, setLoadValue] = useState("");
 
   function set<K extends keyof EventConfiguration>(key: K, value: EventConfiguration[K]) {
     setConfig((c) => ({ ...c, [key]: value }));
+  }
+
+  function firstError(errors: Record<string, string> | undefined): string | undefined {
+    if (!errors) return undefined;
+    const [first] = Object.values(errors);
+    return first;
+  }
+
+  async function requestQuote() {
+    if (action !== "idle") return;
+    setAction("quote");
+    setNotice(null);
+    const result = await submitJson<{ reference?: string }>("/api/builder-quotes", {
+      configuration: config,
+      basket: basket.lines.map((l) => ({
+        equipmentId: l.equipmentId,
+        name: l.equipment.name,
+        quantity: l.quantity,
+        lineTotal: l.lineTotal,
+      })),
+      basketTotal: basket.total,
+    });
+    setAction("idle");
+    if (result.ok && result.data.reference) {
+      setQuoteRef(result.data.reference);
+      setNotice({
+        kind: "ok",
+        text: "Quote request logged — a technical specialist will follow up with an indicative quote.",
+      });
+      return;
+    }
+    setQuoteRef(null);
+    setNotice({
+      kind: "error",
+      text: result.ok
+        ? "The quote request could not be referenced. Please try again."
+        : (result.error ?? firstError(result.errors) ?? "Something went wrong. Please try again."),
+    });
+  }
+
+  async function saveConfiguration() {
+    if (action !== "idle") return;
+    setAction("save");
+    setNotice(null);
+    const result = await submitJson<{ reference?: string }>("/api/builder-configs", {
+      configuration: config,
+      label: `${config.eventType} · ${config.guestCount} guests`,
+    });
+    setAction("idle");
+    if (result.ok && result.data.reference) {
+      setSavedRef(result.data.reference);
+      setNotice({
+        kind: "ok",
+        text: "Configuration saved — keep the reference below to reload it later.",
+      });
+      return;
+    }
+    setSavedRef(null);
+    setNotice({
+      kind: "error",
+      text: result.ok
+        ? "The configuration could not be referenced. Please try again."
+        : (result.error ?? firstError(result.errors) ?? "Something went wrong. Please try again."),
+    });
+  }
+
+  async function loadConfiguration() {
+    if (action !== "idle") return;
+    const reference = loadValue.trim().toUpperCase();
+    if (!reference) {
+      setNotice({ kind: "error", text: "Enter a saved configuration reference to load." });
+      return;
+    }
+    setAction("load");
+    setNotice(null);
+    const result = await fetchJson<{ configuration?: EventConfiguration }>(
+      `/api/builder-configs/${encodeURIComponent(reference)}`
+    );
+    setAction("idle");
+    if (!result.ok) {
+      setNotice({ kind: "error", text: result.error ?? "Network error — please try again." });
+      return;
+    }
+    if (!result.data.configuration) {
+      setNotice({ kind: "error", text: `No configuration found for ${reference}.` });
+      return;
+    }
+    setConfig(result.data.configuration);
+    setLoadValue("");
+    setNotice({ kind: "ok", text: `Loaded configuration ${reference}.` });
   }
 
   return (
@@ -78,6 +189,17 @@ export function BuilderShell() {
                 basketLines={basket.lines}
                 basketTotal={basket.total}
                 combinedTotal={combinedTotal}
+                review={{
+                  action,
+                  notice,
+                  quoteRef,
+                  savedRef,
+                  loadValue,
+                  onLoadValue: setLoadValue,
+                  onRequestQuote: requestQuote,
+                  onSave: saveConfiguration,
+                  onLoad: loadConfiguration,
+                }}
               />
             </motion.div>
           </AnimatePresence>
@@ -139,6 +261,7 @@ function StepFields({
   basketLines,
   basketTotal,
   combinedTotal,
+  review,
 }: {
   step: (typeof steps)[number]["key"];
   config: EventConfiguration;
@@ -146,6 +269,7 @@ function StepFields({
   basketLines: ReturnType<typeof useBasket>["lines"];
   basketTotal: number;
   combinedTotal: number;
+  review: ReviewActions;
 }) {
   switch (step) {
     case "type":
@@ -353,8 +477,67 @@ function StepFields({
             </tbody>
           </table>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button className="btn btn-primary px-5 py-3.5">Request Technical Quote</button>
-            <button className="btn btn-ghost border border-border px-5 py-3.5">Save Configuration</button>
+            <button
+              type="button"
+              className="btn btn-primary px-5 py-3.5"
+              onClick={review.onRequestQuote}
+              disabled={review.action !== "idle"}
+            >
+              {review.action === "quote" ? "Sending…" : "Request Technical Quote"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost border border-border px-5 py-3.5"
+              onClick={review.onSave}
+              disabled={review.action !== "idle"}
+            >
+              {review.action === "save" ? "Saving…" : "Save Configuration"}
+            </button>
+          </div>
+
+          {review.notice && (
+            <p
+              className={`mt-3 rounded border px-3 py-2.5 text-[13px] leading-relaxed ${
+                review.notice.kind === "ok"
+                  ? "border-ok/40 bg-ok/10 text-ok"
+                  : "border-warn/40 bg-warn/10 text-warn"
+              }`}
+            >
+              {review.notice.text}
+            </p>
+          )}
+
+          {review.quoteRef && (
+            <p className="mt-2 text-[13px] text-text-dim">
+              Quote reference <span className="font-semibold text-text">{review.quoteRef}</span>
+            </p>
+          )}
+          {review.savedRef && (
+            <p className="mt-1 text-[13px] text-text-dim">
+              Saved configuration <span className="font-semibold text-text">{review.savedRef}</span>
+            </p>
+          )}
+
+          <div className="mt-6 border-t border-border pt-5">
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-text-faint">
+              Load a saved configuration
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={review.loadValue}
+                onChange={(e) => review.onLoadValue(e.target.value)}
+                placeholder={review.savedRef ?? "SG-C-XXXXXXXX"}
+                className="w-full max-w-[260px] rounded border border-border bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent"
+              />
+              <button
+                type="button"
+                className="btn btn-ghost border border-border px-4 py-2.5"
+                onClick={review.onLoad}
+                disabled={review.action !== "idle"}
+              >
+                {review.action === "load" ? "Loading…" : "Load"}
+              </button>
+            </div>
           </div>
         </div>
       );
